@@ -14,6 +14,8 @@
     --gold-ink:#9a742a;
     --cream:#faf8f3;
     --paper:#ffffff;
+    --app-bg:#ffffff;
+    --app-font:"Arial Narrow",Arial,"Helvetica Neue",sans-serif;
     --ink:#232a34;
     --muted:#6b7280;
     --line:#e6e0d3;
@@ -29,8 +31,8 @@
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
   body{
-    font-family:"Arial Narrow",Arial,"Helvetica Neue",sans-serif;
-    color:var(--ink);background:#fff;font-size:15px;line-height:1.45;
+    font-family:var(--app-font,"Arial Narrow",Arial,"Helvetica Neue",sans-serif);
+    color:var(--ink);background:var(--app-bg,#fff);font-size:15px;line-height:1.45;
   }
   button{font-family:inherit}
   input,select,textarea{font-family:inherit;font-size:14px}
@@ -236,6 +238,10 @@
   .prow a{color:var(--navy);text-decoration:none}
   .prow a:hover{text-decoration:underline}
   .items select{width:100%;border:1px solid var(--line);border-radius:6px;padding:6px 4px;font-size:12px;background:#fff}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap}
+  .swatch{width:30px;height:30px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+  .swatch.on{box-shadow:0 0 0 2px var(--gold),0 0 0 4px rgba(0,0,0,.06)}
+  .field select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:14px;background:#fff}
   input.hl-obj{border:2px solid var(--gold);background:#fdf7ea;box-shadow:0 0 0 3px rgba(176,137,78,.16)}
   input.hl-obj:focus{border-color:var(--gold-ink);box-shadow:0 0 0 3px rgba(176,137,78,.30)}
   table.doc-items tr.cat td{color:#8a6a2f;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:1px;padding:10px 8px 4px;border-bottom:1px solid #15233c;background:transparent}
@@ -561,6 +567,32 @@
   <!-- NASTAVENÍ -->
   <section id="panel-nastaveni" class="panel">
     <div class="panel-head"><h2>Nastavení</h2><div class="head-spacer"></div><button class="btn gold" id="btnNsSave">Uložit nastavení</button></div>
+      <div class="card" style="margin-bottom:16px;padding:18px">
+        <b style="color:var(--navy);font-size:16px">Vzhled a značka</b>
+        <div class="small muted" style="margin:2px 0 12px">Přizpůsob si nástroj pro svůj obor – logo, text u loga, barvy i písmo.</div>
+        <div class="field full">
+          <label>Logo</label>
+          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+            <div id="ns_logoPrev" style="width:64px;height:64px;border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden"></div>
+            <button class="btn sm" id="ns_logoPick" type="button">📷 Nahrát logo</button>
+            <button class="btn sm ghost" id="ns_logoClear" type="button">Odebrat (výchozí)</button>
+            <input type="file" id="ns_logoFile" accept="image/*" style="display:none">
+          </div>
+        </div>
+        <div class="field full" style="margin-top:10px"><label>Text pod názvem (obor / claim)</label><input id="ns_claim" placeholder="Např. Instalatérské práce · Praha"></div>
+        <div class="field full" style="margin-top:10px"><label>Barva zvýraznění</label><div id="ns_accent" class="swatches"></div></div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+          <div class="field" style="flex:1;min-width:180px"><label>Barva pozadí</label><select id="ns_bg"></select></div>
+          <div class="field" style="flex:1;min-width:180px"><label>Písmo</label><select id="ns_font"></select></div>
+        </div>
+        <div class="small muted" style="margin-top:8px">Název u loga se bere z pole „Název firmy" v údajích dodavatele níže.</div>
+      </div>
+      <div class="card" style="margin-bottom:16px;padding:18px">
+        <b style="color:var(--navy);font-size:16px">Kategorie položek</b>
+        <div class="small muted" style="margin:2px 0 12px">Přejmenuj, přidej nebo odeber kategorie – používají se v ceníku, nabídkách i fakturách. Nové vzniknou i automaticky při importu z Excelu (podle sloupce Kategorie).</div>
+        <div id="ns_katList"></div>
+        <button class="btn sm" id="ns_katAdd" type="button" style="margin-top:8px">＋ Přidat kategorii</button>
+      </div>
     <div class="card" style="padding:18px;margin-bottom:16px">
       <b style="color:var(--navy);font-size:16px">Údaje dodavatele</b>
       <div class="small muted" style="margin:4px 0 14px">Zobrazují se na nabídkách, fakturách i protokolech. Číslo účtu a IBAN se použijí v QR platbě.</div>
@@ -3094,7 +3126,7 @@ function blankDB(){
     },
     cislaRady: { faktura:1, nabidka:1, protokol:1 },
     formaty: { faktura:'{RR}{NNNN}', nabidka:'{RRRR}-{NNN}', protokol:'P{RR}{NNNN}' },
-    nastaveni: { autoCenik:true, hlidatCeny:true },
+    nastaveni: { autoCenik:true, hlidatCeny:true, kategorie:[{key:'material',label:'Materiál'},{key:'prace',label:'Práce'},{key:'doprava',label:'Doprava'},{key:'rezie',label:'Režie'},{key:'ostatni',label:'Ostatní'}] },
     kontakty: [],
     cenik: DEFAULT_CENIK.map(x=>({id:uid(),kod:x.kod,kategorie:x.kategorie,nazev:x.nazev,mj:x.mj,cena:x.cena,pozn:x.pozn})),
     nabidky: [],
@@ -3235,8 +3267,37 @@ async function boot(){
   document.querySelector('nav.tabs button[data-tab="kontakty"]').classList.remove('active');
   afterLoad(true);
 }
+/* ===== VZHLED A ZNAČKA (white-label) ===== */
+const THEME_ACCENTS={zlata:['#b0894e','#c9a468','#9a742a'],modra:['#2563eb','#3b82f6','#1d4ed8'],zelena:['#2f855a','#38a169','#276749'],vinova:['#a12f4f','#c04a68','#7d1f3a'],grafit:['#475569','#64748b','#334155'],oranzova:['#d97706','#f59e0b','#b45309'],tyrkys:['#0d9488','#14b8a6','#0f766e']};
+const THEME_ACCENT_LABEL={zlata:'Zlatá',modra:'Modrá',zelena:'Zelená',vinova:'Vínová',grafit:'Grafit',oranzova:'Oranžová',tyrkys:'Tyrkys'};
+const THEME_BGS={bila:'#ffffff',krem:'#faf8f3',seda:'#f4f5f7',modrasv:'#f2f6fc'};
+const THEME_BG_LABEL={bila:'Bílá',krem:'Krémová',seda:'Světle šedá',modrasv:'Světle modrá'};
+const THEME_FONTS={narrow:'"Arial Narrow",Arial,"Helvetica Neue",sans-serif',sans:'Arial,"Helvetica Neue",Helvetica,sans-serif',serif:'Georgia,"Times New Roman",serif',trebu:'"Trebuchet MS",Verdana,sans-serif'};
+const THEME_FONT_LABEL={narrow:'Úzké (Arial Narrow)',sans:'Bezpatkové (Arial)',serif:'Patkové (Georgia)',trebu:'Trebuchet'};
+function applyTheme(){
+  const t=(DB&&DB.nastaveni&&DB.nastaveni.theme)||{};
+  const acc=THEME_ACCENTS[t.accent]||THEME_ACCENTS.zlata;
+  const bg=THEME_BGS[t.bg]||THEME_BGS.bila;
+  const font=THEME_FONTS[t.font]||THEME_FONTS.narrow;
+  const rs=document.documentElement.style;
+  rs.setProperty('--gold',acc[0]); rs.setProperty('--gold-2',acc[1]); rs.setProperty('--gold-ink',acc[2]);
+  rs.setProperty('--app-bg',bg); rs.setProperty('--app-font',font);
+}
+function brandLogo(){ return (DB&&DB.dodavatel&&DB.dodavatel.logo)||LOGO; }
+function updateBrand(){ const d=DB.dodavatel||{}; const lg=document.getElementById('appLogo'); if(lg) lg.src=brandLogo(); const h=document.querySelector('.brand h1'); if(h) h.textContent=d.nazev||'Jan Dlouhý'; const s=document.querySelector('.brand .sub'); if(s) s.textContent=d.claim||'Zakázky · Nabídky · Faktury'; }
+function nsAccentSwatches(){ const cur=((DB.nastaveni.theme||{}).accent)||'zlata'; return Object.keys(THEME_ACCENTS).map(k=>'<button type="button" class="swatch'+(cur===k?' on':'')+'" title="'+THEME_ACCENT_LABEL[k]+'" onclick="setAccent(\''+k+'\')" style="background:'+THEME_ACCENTS[k][0]+'"></button>').join(''); }
+function setAccent(k){ DB.nastaveni.theme=DB.nastaveni.theme||{}; DB.nastaveni.theme.accent=k; applyTheme(); markDirty(); const el=document.getElementById('ns_accent'); if(el) el.innerHTML=nsAccentSwatches(); }
+function setBg(k){ DB.nastaveni.theme=DB.nastaveni.theme||{}; DB.nastaveni.theme.bg=k; applyTheme(); markDirty(); }
+function setFont(k){ DB.nastaveni.theme=DB.nastaveni.theme||{}; DB.nastaveni.theme.font=k; applyTheme(); markDirty(); }
+function renderLogoPrev(){ const el=document.getElementById('ns_logoPrev'); if(!el) return; el.innerHTML='<img src="'+brandLogo()+'" style="max-width:100%;max-height:100%">'; }
+function katEnsure(){ if(!Array.isArray(DB.nastaveni.kategorie)||!DB.nastaveni.kategorie.length) DB.nastaveni.kategorie=LINE_KAT_ORDER.map(k=>({key:k,label:KAT_LABEL[k]})); }
+function renderKatEditor(){ const el=document.getElementById('ns_katList'); if(!el) return; katEnsure(); el.innerHTML=DB.nastaveni.kategorie.map((c,i)=>'<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input value="'+esc(c.label)+'" oninput="katSetLabel('+i+',this.value)" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><button class="icon-btn" type="button" title="Nahoru" onclick="katMove('+i+',-1)">▲</button><button class="icon-btn" type="button" title="Dolů" onclick="katMove('+i+',1)">▼</button><button class="icon-btn" type="button" title="Odebrat" onclick="katRemove('+i+')">✕</button></div>').join(''); }
+function katSetLabel(i,v){ katEnsure(); DB.nastaveni.kategorie[i].label=v; rebuildKats(); markDirty(); }
+function katMove(i,d){ katEnsure(); const a=DB.nastaveni.kategorie,j=i+d; if(j<0||j>=a.length) return; const t=a[i];a[i]=a[j];a[j]=t; rebuildKats(); markDirty(); renderKatEditor(); renderAll(); }
+function katRemove(i){ katEnsure(); const a=DB.nastaveni.kategorie; if(a.length<=1){ showToast('Musí zůstat aspoň jedna kategorie.',true); return; } if(!confirm('Odebrat kategorii „'+a[i].label+'"? Položky v ní se zobrazí v první kategorii.')) return; a.splice(i,1); rebuildKats(); markDirty(); renderKatEditor(); renderAll(); }
+function katAdd(){ katEnsure(); DB.nastaveni.kategorie.push({key:'k_'+Math.random().toString(36).slice(2,8),label:'Nová kategorie'}); rebuildKats(); markDirty(); renderKatEditor(); }
 function afterLoad(onboarding){
-  const _lg=document.getElementById('appLogo'); if(_lg&&!_lg.getAttribute('src')) _lg.src=LOGO;
+  applyTheme(); updateBrand(); rebuildKats();
   updateStoreUI();
   renderAll();
   if(!onboarding) setSaveState('Uloženo ✓','ok');
@@ -3405,13 +3466,22 @@ function saveKontakt(){
 }
 
 /* --- Ceník --- */
-const KAT_LABEL={material:'Materiál',prace:'Práce',doprava:'Doprava',rezie:'Režie',ostatni:'Ostatní'};
+const DEFAULT_KATS=[['material','Materiál'],['prace','Práce'],['doprava','Doprava'],['rezie','Režie'],['ostatni','Ostatní']];
+const KAT_LABEL={};
+const LINE_KAT_ORDER=[];
+const LINE_KAT_LABEL=KAT_LABEL;
+function katSource(){ try{ const k=DB&&DB.nastaveni&&DB.nastaveni.kategorie; if(Array.isArray(k)&&k.length) return k.map(x=>[x.key,x.label]); }catch(e){} return DEFAULT_KATS; }
+function rebuildKats(){ const src=katSource(); LINE_KAT_ORDER.length=0; Object.keys(KAT_LABEL).forEach(k=>delete KAT_LABEL[k]); src.forEach(a=>{ LINE_KAT_ORDER.push(a[0]); KAT_LABEL[a[0]]=a[1]; }); }
+rebuildKats();
 const DEFAULT_PODPIS='';
 function dodPodpis(){ const d=DB.dodavatel||{}; return d.podpis!==undefined ? d.podpis : DEFAULT_PODPIS; }
 function podpisBox(){ const s=dodPodpis(); return s?'<div style="height:46px;display:flex;align-items:flex-end;justify-content:center;overflow:visible"><img src="'+s+'" style="max-height:58px;max-width:230px;margin-bottom:-6px" alt="podpis"></div>':''; }
 function renderCenik(){
   const q=(document.getElementById('cenikSearch').value||'').toLowerCase().trim();
-  const f=document.getElementById('cenikFilter').value;
+  const _filt=document.getElementById('cenikFilter'); const _cur=_filt.value;
+  _filt.innerHTML='<option value="">Všechny kategorie</option>'+LINE_KAT_ORDER.map(k=>'<option value="'+k+'">'+esc(KAT_LABEL[k])+'</option>').join('');
+  _filt.value=(LINE_KAT_ORDER.indexOf(_cur)>=0)?_cur:'';
+  const f=_filt.value;
   let rows=DB.cenik.slice().sort((a,b)=>a.nazev.localeCompare(b.nazev,'cs'));
   if(f) rows=rows.filter(c=>c.kategorie===f);
   if(q) rows=rows.filter(c=>[c.nazev,c.kod].some(v=>(v||'').toLowerCase().includes(q)));
@@ -3436,7 +3506,8 @@ function openCenikModal(c){
   editingCenikId=c?c.id:null;
   document.getElementById('cenikTitle').textContent=c?'Upravit položku':'Nová položka ceníku';
   document.getElementById('cKod').value=c?.kod||'';
-  document.getElementById('cKat').value=c?.kategorie||'material';
+  document.getElementById('cKat').innerHTML=LINE_KAT_ORDER.map(k=>'<option value="'+k+'">'+esc(KAT_LABEL[k])+'</option>').join('');
+  document.getElementById('cKat').value=c?.kategorie||LINE_KAT_ORDER[0]||'material';
   document.getElementById('cNazev').value=c?.nazev||'';
   document.getElementById('cMj').value=c?.mj||'';
   document.getElementById('cCena').value=c?(''+c.cena).replace('.',','):'';
@@ -3603,10 +3674,8 @@ function nbCloseEditor(){
   if(ed) ed.style.display='none'; if(ls) ls.style.display='block';
 }
 
-const LINE_KAT_ORDER=['material','prace','doprava','rezie','ostatni'];
-const LINE_KAT_LABEL=KAT_LABEL;
-function normKatLine(k){ if(k==='montaz'||k==='demontaz') return 'prace'; return LINE_KAT_ORDER.indexOf(k)>=0?k:'prace'; }
-function katFromCenik(kategorie){ return LINE_KAT_ORDER.indexOf(kategorie)>=0?kategorie:'prace'; }
+function normKatLine(k){ if((k==='montaz'||k==='demontaz')&&LINE_KAT_ORDER.indexOf('prace')>=0) return 'prace'; return LINE_KAT_ORDER.indexOf(k)>=0?k:(LINE_KAT_ORDER[0]||'ostatni'); }
+function katFromCenik(kategorie){ return LINE_KAT_ORDER.indexOf(kategorie)>=0?kategorie:(LINE_KAT_ORDER[0]||'ostatni'); }
 function groupByKat(polozky){ const g={}; LINE_KAT_ORDER.forEach(k=>g[k]=[]); (polozky||[]).forEach(p=>{ g[normKatLine(p.kat)].push(p); }); return g; }
 function katOptions(cur,fn,idx){ cur=normKatLine(cur); return '<select data-idx="'+idx+'" data-field="kat" onchange="'+fn+'(this)" style="width:100%">'+LINE_KAT_ORDER.map(k=>'<option value="'+k+'"'+(cur===k?' selected':'')+'>'+LINE_KAT_LABEL[k]+'</option>').join('')+'</select>'; }
 function renderNbItems(){
@@ -3726,7 +3795,7 @@ function nbDocHtml(rec){
   const adr=[esc(k.ulice||''), esc([k.psc,k.mesto].filter(Boolean).join(' '))].filter(Boolean).join('<br>');
   return '<div class="doc">'+
      '<div class="doc-top">'+
-       '<div class="doc-brand"><img class="doc-logo-img" src="'+LOGO+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">Instalace · montáže · hydranty a rozvody</div></div></div>'+
+       '<div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div>'+
        '<div class="doc-title"><div class="doc-t1">CENOVÁ NABÍDKA</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div>'+
      '</div>'+
      '<div class="doc-parties">'+
@@ -3953,7 +4022,7 @@ function faDocHtml(rec){
     '</table></div>'+(qr?'<div style="text-align:center"><img class="doc-qr" src="'+qr+'"><div class="lbl" style="margin-top:4px">QR platba</div></div>':'')+'</div>';
   const H=[];
   H.push('<div class="doc">');
-  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+LOGO+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">Instalace · montáže · hydranty a rozvody</div></div></div>');
+  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div>');
   H.push('<div class="doc-title"><div class="doc-t1">FAKTURA — DAŇOVÝ DOKLAD</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
   H.push('<div class="doc-parties"><div class="doc-box"><div class="doc-lbl">DODAVATEL</div><div class="doc-strong">'+esc(d.nazev||'')+'</div>'+esc(d.ulice||'')+'<br>'+esc(d.psc||'')+' '+esc(d.mesto||'')+'<br>IČ: '+esc(d.ico||'')+(d.dic?' · DIČ: '+esc(d.dic):'')+'<br>'+esc(d.tel||'')+(d.email?' · '+esc(d.email):'')+'</div>');
   H.push('<div class="doc-box"><div class="doc-lbl">ODBĚRATEL</div><div class="doc-strong">'+esc(k.nazev||'')+'</div>'+(adr||'')+(k.ico?'<br>IČ: '+esc(k.ico):'')+(k.dic?' · DIČ: '+esc(k.dic):'')+(k.osoba?'<br>'+esc(k.osoba):'')+'</div></div>');
@@ -4092,7 +4161,7 @@ function printProtokol(rec){
   const declare = rec.stavDila==='vyhrady' ? '<b>Objednatel dílo převzal s výhradami</b> uvedenými níže.' : '<b>Objednatel dílo převzal bez vad a nedodělků.</b>';
   const H=[];
   H.push('<div class="doc">');
-  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+LOGO+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">Instalace · montáže · hydranty a rozvody</div></div></div><div class="doc-title"><div class="doc-t1">PŘEDÁVACÍ PROTOKOL</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
+  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div><div class="doc-title"><div class="doc-t1">PŘEDÁVACÍ PROTOKOL</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
   H.push('<div class="doc-parties"><div class="doc-box"><div class="doc-lbl">ZHOTOVITEL</div><div class="doc-strong">'+esc(d.nazev||'')+'</div>'+esc(d.ulice||'')+'<br>'+esc(d.psc||'')+' '+esc(d.mesto||'')+'<br>IČ: '+esc(d.ico||'')+(d.dic?' · DIČ: '+esc(d.dic):'')+'</div>');
   H.push('<div class="doc-box"><div class="doc-lbl">OBJEDNATEL</div><div class="doc-strong">'+esc(k.nazev||'')+'</div>'+(adr||'')+(k.ico?'<br>IČ: '+esc(k.ico):'')+(k.osoba?'<br>'+esc(k.osoba):'')+'</div></div>');
   H.push('<div class="doc-meta"><div><span>Datum předání</span><b>'+czDate(rec.datumPredani)+'</b></div><div><span>Místo plnění</span><b>'+(esc(rec.misto||'')||'—')+'</b></div><div><span>Odkaz</span><b>'+(esc(rec.odkaz||'')||'—')+'</b></div></div>');
@@ -4146,6 +4215,12 @@ function nsRender(){
   document.getElementById('ns_autoCenik').checked=!!DB.nastaveni.autoCenik;
   document.getElementById('ns_hlidatCeny').checked=!!DB.nastaveni.hlidatCeny;
   renderPodpisPrev();
+  renderLogoPrev();
+  setVal('ns_claim', d.claim||'');
+  document.getElementById('ns_accent').innerHTML=nsAccentSwatches();
+  const _bg=document.getElementById('ns_bg'); _bg.innerHTML=Object.keys(THEME_BGS).map(k=>'<option value="'+k+'">'+THEME_BG_LABEL[k]+'</option>').join(''); _bg.value=((DB.nastaveni.theme||{}).bg)||'bila';
+  const _f=document.getElementById('ns_font'); _f.innerHTML=Object.keys(THEME_FONTS).map(k=>'<option value="'+k+'">'+THEME_FONT_LABEL[k]+'</option>').join(''); _f.value=((DB.nastaveni.theme||{}).font)||'narrow';
+  renderKatEditor();
   nsPreview();
 }
 function nsPreview(){
@@ -4163,9 +4238,16 @@ function nsSave(){
   DB.cislaRady.protokol=parseInt(val('next_protokol'))||1;
   DB.nastaveni.autoCenik=document.getElementById('ns_autoCenik').checked;
   DB.nastaveni.hlidatCeny=document.getElementById('ns_hlidatCeny').checked;
-  markDirty(); showToast('Nastavení uloženo.');
+  DB.dodavatel.claim=val('ns_claim').trim();
+  markDirty(); updateBrand(); showToast('Nastavení uloženo.');
 }
 document.getElementById('btnNsSave').onclick=nsSave;
+document.getElementById('ns_logoPick').onclick=()=>document.getElementById('ns_logoFile').click();
+document.getElementById('ns_logoFile').onchange=e=>{const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{DB.dodavatel=DB.dodavatel||{}; DB.dodavatel.logo=r.result; markDirty(); renderLogoPrev(); updateBrand(); showToast('Logo nahráno.');}; r.readAsDataURL(f); e.target.value='';};
+document.getElementById('ns_logoClear').onclick=()=>{DB.dodavatel=DB.dodavatel||{}; delete DB.dodavatel.logo; markDirty(); renderLogoPrev(); updateBrand(); showToast('Logo odebráno — výchozí.');};
+document.getElementById('ns_bg').onchange=e=>setBg(e.target.value);
+document.getElementById('ns_katAdd').onclick=katAdd;
+document.getElementById('ns_font').onchange=e=>setFont(e.target.value);
 function renderPodpisPrev(){ const el=document.getElementById('ns_podpisPrev'); if(!el) return; const s=dodPodpis(); el.innerHTML = s ? '<img src="'+s+'" style="max-height:52px;max-width:200px">' : '<span class="small muted">Bez podpisu</span>'; }
 document.getElementById('ns_podpisPick').onclick=()=>document.getElementById('ns_podpisFile').click();
 document.getElementById('ns_podpisFile').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ DB.dodavatel=DB.dodavatel||{}; DB.dodavatel.podpis=r.result; markDirty(); renderPodpisPrev(); showToast('Podpis nahrán.'); }; r.readAsDataURL(f); e.target.value=''; };
@@ -4314,9 +4396,15 @@ function matchCol(h){
   if(n.indexOf('pozn')===0) return 'pozn';
   return null;
 }
+let pendingKats={};
 function normKat(v){
-  const m={material:'material',prace:'prace',doprava:'doprava',rezie:'rezie',ostatni:'ostatni'};
-  return m[norm(v)]||'';
+  const t=norm(v); if(!t) return LINE_KAT_ORDER[0]||'ostatni';
+  for(const key of LINE_KAT_ORDER){ if(norm(key)===t || norm(KAT_LABEL[key]||'')===t) return key; }
+  if((t==='montaz'||t==='demontaz')&&LINE_KAT_ORDER.indexOf('prace')>=0) return 'prace';
+  for(const k in pendingKats){ if(norm(k)===t || norm(pendingKats[k])===t) return k; }
+  let key=('k_'+t.replace(/[^a-z0-9]+/g,'_')).replace(/_+$/,'').slice(0,24); if(key==='k_'||key==='k') key='k_'+Math.random().toString(36).slice(2,7);
+  pendingKats[key]=(''+v).trim()||key;
+  return key;
 }
 function parseCena(v){
   if(typeof v==='number') return v;
@@ -4361,6 +4449,7 @@ function parsePaste(){
   parseRows(rows);
 }
 function parseRows(rows){
+  pendingKats={};
   let headerIdx=-1, colMap=null, best=0;
   for(let i=0;i<Math.min(rows.length,12);i++){
     const map={}; let cnt=0;
@@ -4407,7 +4496,7 @@ function showPreview(items, skipped){
   const neu=items.length-upd;
   sum.innerHTML='Nalezeno <b>'+items.length+'</b> položek — '+neu+' nových, '+upd+' k aktualizaci'+(skipped?', '+skipped+' přeskočeno (chybí cena)':'')+'.';
   prev.innerHTML='<div class="card"><table><thead><tr><th>Kód</th><th>Název</th><th>Kategorie</th><th>MJ</th><th class="num">Cena</th></tr></thead><tbody>'+
-    items.slice(0,120).map(it=>'<tr><td class="small muted">'+esc(it.kod||'—')+'</td><td>'+esc(it.nazev)+'</td><td><span class="badge '+it.kategorie+'">'+KAT_LABEL[it.kategorie]+'</span></td><td>'+esc(it.mj)+'</td><td class="num">'+fmtCena(it.cena)+'</td></tr>').join('')+
+    items.slice(0,120).map(it=>'<tr><td class="small muted">'+esc(it.kod||'—')+'</td><td>'+esc(it.nazev)+'</td><td><span class="badge '+it.kategorie+'">'+esc(KAT_LABEL[it.kategorie]||pendingKats[it.kategorie]||it.kategorie)+'</span></td><td>'+esc(it.mj)+'</td><td class="num">'+fmtCena(it.cena)+'</td></tr>').join('')+
     (items.length>120?'<tr><td colspan="5" class="muted small" style="padding:10px 14px">… a dalších '+(items.length-120)+'</td></tr>':'')+
     '</tbody></table></div>';
   document.getElementById('impApply').style.display='';
@@ -4415,6 +4504,9 @@ function showPreview(items, skipped){
 }
 function applyImport(mode){
   if(!pendingImport.length) return;
+  DB.nastaveni.kategorie=DB.nastaveni.kategorie||LINE_KAT_ORDER.map(x=>({key:x,label:KAT_LABEL[x]}));
+  Object.keys(pendingKats).forEach(k=>{ if(LINE_KAT_ORDER.indexOf(k)<0 && !DB.nastaveni.kategorie.some(c=>c.key===k)) DB.nastaveni.kategorie.push({key:k,label:pendingKats[k]}); });
+  rebuildKats();
   if(mode==='replace' && !confirm('Nahradit celý stávající ceník ('+DB.cenik.length+' položek) importovanými '+pendingImport.length+'? Tuto akci nelze vzít zpět.')) return;
   if(mode==='replace') DB.cenik=[];
   let neu=0,upd=0;
