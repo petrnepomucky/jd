@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Jan Dlouhý — Zakázky, faktury a nabídky</title>
+<title>Faktury, nabídky a protokoly</title>
 <style>
   :root{
     --navy:#15233c;
@@ -256,9 +256,9 @@
 <body>
 <header>
   <div class="head-top">
-    <img id="appLogo" class="logo" alt="Jan Dlouhý">
+    <img id="appLogo" class="logo" alt="Logo">
     <div class="brand">
-      <h1>Jan Dlouhý</h1>
+      <h1>Vaše firma</h1>
       <div class="sub">Zakázky · Nabídky · Faktury</div>
     </div>
     <div class="head-spacer"></div>
@@ -294,11 +294,11 @@
       </div>
       <div class="choice" id="obNew">
         <div class="t">➕ Vytvořit nový datový soubor</div>
-        <div class="d">Vyberte složku (ideálně v OneDrive) a název, např. <b>Dlouhy_data.json</b>. Doporučeno pro první spuštění.</div>
+        <div class="d">Vyberte složku (ideálně v OneDrive) a název, např. <b>faktury_data.json</b>. Doporučeno pro první spuštění.</div>
       </div>
       <div class="choice" id="obOpen">
         <div class="t">📂 Otevřít existující soubor</div>
-        <div class="d">Máte-li už <b>Dlouhy_data.json</b> z jiného počítače nebo ze zálohy.</div>
+        <div class="d">Máte-li už <b>faktury_data.json</b> z jiného počítače nebo ze zálohy.</div>
       </div>
       <div class="choice wide" id="obSkip">
         <div class="t">Zatím jen v prohlížeči (bez souboru)</div>
@@ -3118,11 +3118,11 @@ function loadDefaultCenik(){
 function blankDB(){
   return {
     schemaVersion: SCHEMA,
-    dodavatel: {                 // pevné údaje Jana (později v Nastavení)
-      nazev:"Jan Dlouhý", ico:"87539390", dic:"CZ8608110027",
-      ulice:"Kpt. Stránského 990/14", mesto:"Praha 9", psc:"198 00",
-      tel:"+420 601 163 007", email:"dlouhy.metr@seznam.cz",
-      banka:"ČSOB", ucet:"369320645/0300", iban:"CZ5703000000000369320645", swift:"CEKOCZPP"
+    dodavatel: {                 // vyplní se v Nastavení → Údaje dodavatele
+      nazev:"", ico:"", dic:"",
+      ulice:"", mesto:"", psc:"",
+      tel:"", email:"",
+      banka:"", ucet:"", iban:"", swift:""
     },
     cislaRady: { faktura:1, nabidka:1, protokol:1 },
     formaty: { faktura:'{RR}{NNNN}', nabidka:'{RRRR}-{NNN}', protokol:'P{RR}{NNNN}' },
@@ -3238,7 +3238,7 @@ async function boot(){
     try{
       const sdir=await idbGet('dirHandle');
       if(sdir && await verifyPermission(sdir,true)){
-        dirHandle=sdir; fileHandle=await sdir.getFileHandle('Dlouhy_data.json',{create:true});
+        dirHandle=sdir; fileHandle=await sdir.getFileHandle('faktury_data.json',{create:true});
         DB=await readFile(fileHandle); afterLoad(); return;
       }
       const saved=await idbGet('fileHandle');
@@ -3284,7 +3284,7 @@ function applyTheme(){
   rs.setProperty('--app-bg',bg); rs.setProperty('--app-font',font);
 }
 function brandLogo(){ return (DB&&DB.dodavatel&&DB.dodavatel.logo)||LOGO; }
-function updateBrand(){ const d=DB.dodavatel||{}; const lg=document.getElementById('appLogo'); if(lg) lg.src=brandLogo(); const h=document.querySelector('.brand h1'); if(h) h.textContent=d.nazev||'Jan Dlouhý'; const s=document.querySelector('.brand .sub'); if(s) s.textContent=d.claim||'Zakázky · Nabídky · Faktury'; }
+function updateBrand(){ const d=DB.dodavatel||{}; const lg=document.getElementById('appLogo'); if(lg) lg.src=brandLogo(); const h=document.querySelector('.brand h1'); if(h) h.textContent=d.nazev||'Vaše firma'; const s=document.querySelector('.brand .sub'); if(s) s.textContent=d.claim||'Zakázky · Nabídky · Faktury'; }
 function nsAccentSwatches(){ const cur=((DB.nastaveni.theme||{}).accent)||'zlata'; return Object.keys(THEME_ACCENTS).map(k=>'<button type="button" class="swatch'+(cur===k?' on':'')+'" title="'+THEME_ACCENT_LABEL[k]+'" onclick="setAccent(\''+k+'\')" style="background:'+THEME_ACCENTS[k][0]+'"></button>').join(''); }
 function setAccent(k){ DB.nastaveni.theme=DB.nastaveni.theme||{}; DB.nastaveni.theme.accent=k; applyTheme(); markDirty(); const el=document.getElementById('ns_accent'); if(el) el.innerHTML=nsAccentSwatches(); }
 function setBg(k){ DB.nastaveni.theme=DB.nastaveni.theme||{}; DB.nastaveni.theme.bg=k; applyTheme(); markDirty(); }
@@ -3308,7 +3308,7 @@ async function createFile(){
   if(!FSA){ showToast('Váš prohlížeč neumí zapisovat do souboru. Použijte Edge nebo Chrome, nebo zálohujte tlačítkem „Stáhnout zálohu".', true); return; }
   try{
     const h=await window.showSaveFilePicker({
-      suggestedName:'Dlouhy_data.json',
+      suggestedName:'faktury_data.json',
       types:[{description:'Datový soubor',accept:{'application/json':['.json']}}]
     });
     fileHandle=h; await idbSet('fileHandle',h);
@@ -3346,7 +3346,7 @@ function backupDownload(){
   const stamp=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob); a.download='Dlouhy_data_zaloha_'+stamp+'.json';
+  a.href=URL.createObjectURL(blob); a.download='faktury_data_zaloha_'+stamp+'.json';
   a.click(); URL.revokeObjectURL(a.href);
   showToast('Záloha stažena.');
 }
@@ -3795,7 +3795,7 @@ function nbDocHtml(rec){
   const adr=[esc(k.ulice||''), esc([k.psc,k.mesto].filter(Boolean).join(' '))].filter(Boolean).join('<br>');
   return '<div class="doc">'+
      '<div class="doc-top">'+
-       '<div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div>'+
+       '<div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">'+esc(d.claim||'')+'</div></div></div>'+
        '<div class="doc-title"><div class="doc-t1">CENOVÁ NABÍDKA</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div>'+
      '</div>'+
      '<div class="doc-parties">'+
@@ -4022,7 +4022,7 @@ function faDocHtml(rec){
     '</table></div>'+(qr?'<div style="text-align:center"><img class="doc-qr" src="'+qr+'"><div class="lbl" style="margin-top:4px">QR platba</div></div>':'')+'</div>';
   const H=[];
   H.push('<div class="doc">');
-  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'Jan Dlouhý')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div>');
+  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">'+esc(d.claim||'')+'</div></div></div>');
   H.push('<div class="doc-title"><div class="doc-t1">FAKTURA — DAŇOVÝ DOKLAD</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
   H.push('<div class="doc-parties"><div class="doc-box"><div class="doc-lbl">DODAVATEL</div><div class="doc-strong">'+esc(d.nazev||'')+'</div>'+esc(d.ulice||'')+'<br>'+esc(d.psc||'')+' '+esc(d.mesto||'')+'<br>IČ: '+esc(d.ico||'')+(d.dic?' · DIČ: '+esc(d.dic):'')+'<br>'+esc(d.tel||'')+(d.email?' · '+esc(d.email):'')+'</div>');
   H.push('<div class="doc-box"><div class="doc-lbl">ODBĚRATEL</div><div class="doc-strong">'+esc(k.nazev||'')+'</div>'+(adr||'')+(k.ico?'<br>IČ: '+esc(k.ico):'')+(k.dic?' · DIČ: '+esc(k.dic):'')+(k.osoba?'<br>'+esc(k.osoba):'')+'</div></div>');
@@ -4161,7 +4161,7 @@ function printProtokol(rec){
   const declare = rec.stavDila==='vyhrady' ? '<b>Objednatel dílo převzal s výhradami</b> uvedenými níže.' : '<b>Objednatel dílo převzal bez vad a nedodělků.</b>';
   const H=[];
   H.push('<div class="doc">');
-  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">'+esc(d.claim||'Instalace · montáže · hydranty a rozvody')+'</div></div></div><div class="doc-title"><div class="doc-t1">PŘEDÁVACÍ PROTOKOL</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
+  H.push('<div class="doc-top"><div class="doc-brand"><img class="doc-logo-img" src="'+brandLogo()+'" alt=""><div><div class="doc-name">'+esc(d.nazev||'')+'</div><div class="doc-sub">'+esc(d.claim||'')+'</div></div></div><div class="doc-title"><div class="doc-t1">PŘEDÁVACÍ PROTOKOL</div><div class="doc-t2">'+esc(rec.cislo||'')+'</div></div></div>');
   H.push('<div class="doc-parties"><div class="doc-box"><div class="doc-lbl">ZHOTOVITEL</div><div class="doc-strong">'+esc(d.nazev||'')+'</div>'+esc(d.ulice||'')+'<br>'+esc(d.psc||'')+' '+esc(d.mesto||'')+'<br>IČ: '+esc(d.ico||'')+(d.dic?' · DIČ: '+esc(d.dic):'')+'</div>');
   H.push('<div class="doc-box"><div class="doc-lbl">OBJEDNATEL</div><div class="doc-strong">'+esc(k.nazev||'')+'</div>'+(adr||'')+(k.ico?'<br>IČ: '+esc(k.ico):'')+(k.osoba?'<br>'+esc(k.osoba):'')+'</div></div>');
   H.push('<div class="doc-meta"><div><span>Datum předání</span><b>'+czDate(rec.datumPredani)+'</b></div><div><span>Místo plnění</span><b>'+(esc(rec.misto||'')||'—')+'</b></div><div><span>Odkaz</span><b>'+(esc(rec.odkaz||'')||'—')+'</b></div></div>');
@@ -4263,7 +4263,7 @@ async function connectFolder(){
     const dir=await window.showDirectoryPicker({mode:'readwrite'});
     if(!await verifyPermission(dir,true)){ showToast('Bez oprávnění ke složce.',true); return; }
     dirHandle=dir; await idbSet('dirHandle',dir);
-    fileHandle=await dir.getFileHandle('Dlouhy_data.json',{create:true}); await idbSet('fileHandle',fileHandle);
+    fileHandle=await dir.getFileHandle('faktury_data.json',{create:true}); await idbSet('fileHandle',fileHandle);
     const existing=await readFile(fileHandle);
     const hasNew = DB && (DB.kontakty.length||DB.cenik.length||DB.faktury.length||DB.nabidky.length||DB.protokoly.length);
     const fileEmpty = !(existing.kontakty.length||existing.cenik.length||existing.faktury.length||existing.nabidky.length||existing.protokoly.length);
