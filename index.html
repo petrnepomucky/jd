@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YeY – Kancelář pro řemeslníky</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📏</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap&subset=latin-ext" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --papir:#F4F5F2; --karta:#FFFFFF; --inkoust:#1D272F; --ocel:#5D6B76;
+  --linka:#D8DCD6; --metr:#F2B705; --metr-tm:#7A5E00;
+  --sklad:#2B7A4B; --pozor:#B3261E; --r:10px;
+  color-scheme: light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:16px/1.5 'Barlow',system-ui,'Segoe UI',sans-serif;color:var(--inkoust);background:var(--papir);-webkit-font-smoothing:antialiased}
+h1,h2,h3,.cena,.tab,.znacka{font-family:'Barlow Condensed','Barlow',system-ui,sans-serif}
+h1,h2,h3{margin:0;line-height:1.15}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--inkoust);outline-offset:2px}
+.skryt{display:none!important}
+a{color:inherit}
+
+/* ---------- metr: žlutý pás s ryskami ---------- */
+.metr{background:var(--metr);position:relative}
+.metr::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:12px;pointer-events:none;
+  background:
+    repeating-linear-gradient(90deg,var(--inkoust) 0 2px,transparent 2px 60px) 0 100%/100% 12px no-repeat,
+    repeating-linear-gradient(90deg,var(--inkoust) 0 1px,transparent 1px 12px) 0 100%/100% 6px no-repeat;
+  opacity:.6;
+}
+
+/* ---------- tlačítka a pole ---------- */
+.btn{border:0;border-radius:8px;padding:.65rem 1.1rem;font-weight:600;cursor:pointer;background:var(--inkoust);color:#fff;display:inline-flex;align-items:center;gap:.4rem;justify-content:center;text-decoration:none;line-height:1.2}
+.btn:hover{background:#2E3B45}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-metr{background:var(--metr);color:var(--inkoust)}
+.btn-metr:hover{background:#E0A800}
+.btn-tichy{background:transparent;color:var(--inkoust);border:1px solid var(--linka)}
+.btn-tichy:hover{background:#EBEDE8}
+.btn-pozor{background:transparent;color:var(--pozor);border:1px solid #E3B8B5}
+.btn-pozor:hover{background:#FBEDEC}
+.odkaz{background:none;border:0;padding:0;color:var(--ocel);text-decoration:underline;cursor:pointer}
+label{display:block;font-weight:500;font-size:.9rem;margin-bottom:.25rem}
+.pole{width:100%;padding:.6rem .75rem;border:1px solid #BFC5BF;border-radius:8px;background:#fff}
+.pole:focus{border-color:var(--inkoust);outline:none;box-shadow:0 0 0 3px rgba(29,39,47,.15)}
+.radek{margin-bottom:.9rem}
+.mrizka{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.napoveda{font-size:.85rem;color:var(--ocel);margin:.25rem 0 0}
+.chyba{color:var(--pozor)}
+
+/* ---------- přihlášení ---------- */
+#obr-prihlaseni,#obr-heslo{min-height:100vh;display:grid;place-items:center;padding:1.5rem}
+.vstup{width:100%;max-width:400px;background:var(--karta);border-radius:var(--r);overflow:hidden;border:1px solid var(--linka)}
+.vstup .metr{padding:1.4rem 1.5rem 1.9rem}
+.znacka{font-size:2.4rem;font-weight:700;letter-spacing:-.01em;line-height:1}
+.znacka-pod{font-weight:500;margin-top:.2rem}
+.vstup form{padding:1.5rem}
+.vstup h2{font-size:1.5rem;margin-bottom:1rem}
+.vstup .btn{width:100%;margin-top:.3rem}
+.prepinace{display:flex;justify-content:space-between;gap:1rem;margin-top:1rem;flex-wrap:wrap}
+.hlaska{margin-top:.8rem;font-size:.95rem}
+
+/* ---------- aplikace ---------- */
+.hlavicka{background:var(--inkoust);color:#fff}
+.hlavicka-in{max-width:1080px;margin:0 auto;padding:.7rem 1rem;display:flex;align-items:center;gap:1rem}
+.hlavicka .znacka{font-size:1.6rem;color:var(--metr)}
+.firma-nazev{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uzivatel{font-size:.85rem;opacity:.75}
+.hlavicka .btn-tichy{color:#fff;border-color:#48555F;padding:.4rem .8rem}
+.hlavicka .btn-tichy:hover{background:#2E3B45}
+
+.taby{background:var(--karta);border-bottom:1px solid var(--linka)}
+.taby-in{max-width:1080px;margin:0 auto;display:flex;padding:0 1rem}
+.tab{background:none;border:0;padding:.8rem 1.1rem;font-size:1.15rem;font-weight:600;color:var(--ocel);cursor:pointer;border-bottom:4px solid transparent}
+.tab[aria-selected="true"]{color:var(--inkoust);border-bottom-color:var(--metr)}
+
+main{max-width:1080px;margin:0 auto;padding:1.2rem 1rem 6rem}
+
+.pas{border-radius:var(--r);padding:1rem 1rem 1.8rem;margin-bottom:1rem}
+.hledani{display:flex;gap:.6rem;align-items:center}
+.hledani .pole{font-size:1.15rem;padding:.75rem .9rem;border:2px solid var(--inkoust)}
+.pas-info{display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:.6rem;font-size:.92rem}
+.zatrzitko{display:inline-flex;align-items:center;gap:.4rem;font-weight:500;margin:0;cursor:pointer}
+.zatrzitko input{width:1.1rem;height:1.1rem;accent-color:var(--inkoust)}
+
+.seznam{background:var(--karta);border:1px solid var(--linka);border-radius:var(--r);overflow:hidden}
+.prazdno{padding:2rem 1.2rem;color:var(--ocel);text-align:center}
+
+.polozka{display:grid;grid-template-columns:72px 1fr auto;gap:.9rem;padding:.85rem 1rem;border-top:1px solid var(--linka);align-items:center}
+.polozka:first-child{border-top:0}
+.obr{width:72px;height:72px;border-radius:6px;background:#EEF0EC;display:grid;place-items:center;overflow:hidden}
+.obr img{width:100%;height:100%;object-fit:contain;background:#fff}
+.obr.bez-obr::after{content:"📦";font-size:1.6rem;opacity:.45}
+.p-nazev{font-weight:600;line-height:1.25}
+.p-meta{font-size:.85rem;color:var(--ocel);margin-top:.15rem}
+.stitky{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.35rem}
+.stitek{font-size:.78rem;font-weight:600;padding:.1rem .45rem;border-radius:4px;background:#EEF0EC;color:var(--ocel)}
+.stitek.ok{background:#E3F1E8;color:var(--sklad)}
+.stitek.v-ceniku{background:var(--metr);color:var(--inkoust)}
+.p-vpravo{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem}
+.cena{font-size:1.45rem;font-weight:700;line-height:1;white-space:nowrap}
+.cena small{font-family:'Barlow',sans-serif;font-size:.72rem;font-weight:500;color:var(--ocel);display:block;margin-top:.15rem}
+.p-akce{display:flex;gap:.4rem}
+.p-akce .btn{padding:.45rem .8rem;font-size:.92rem}
+
+.nastroje{display:flex;gap:.6rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap}
+.nastroje .pole{flex:1;min-width:180px}
+
+.cenik-radek{display:grid;grid-template-columns:1fr auto auto;gap:1rem;padding:.8rem 1rem;border-top:1px solid var(--linka);align-items:center;cursor:pointer;width:100%;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left}
+.cenik-radek:first-child{border-top:0}
+.cenik-radek:hover{background:#F8F9F6}
+.c-ceny{text-align:right;font-size:.85rem;color:var(--ocel);white-space:nowrap}
+.c-ceny .cena{font-size:1.25rem;color:var(--inkoust)}
+
+.formular{background:var(--karta);border:1px solid var(--linka);border-radius:var(--r);padding:1.3rem;max-width:560px}
+.formular h2{font-size:1.5rem;margin-bottom:1rem}
+
+/* ---------- dialog ---------- */
+dialog{border:0;border-radius:var(--r);padding:0;width:min(560px,calc(100% - 1.5rem));max-height:calc(100vh - 2rem)}
+dialog::backdrop{background:rgba(29,39,47,.55)}
+.dlg-hlava{padding:1rem 1.2rem 1.7rem}
+.dlg-hlava h2{font-size:1.45rem;padding-right:2rem}
+.dlg-zavrit{position:absolute;top:.6rem;right:.7rem;background:none;border:0;font-size:1.6rem;line-height:1;cursor:pointer;z-index:1}
+.dlg-telo{padding:1.2rem}
+.souhrn{display:flex;justify-content:space-between;align-items:baseline;background:#EEF0EC;border-radius:8px;padding:.7rem .9rem;margin:.3rem 0 1rem}
+.dlg-pata{display:flex;gap:.6rem;justify-content:space-between;flex-wrap:wrap}
+.dlg-pata .vpravo{display:flex;gap:.6rem;margin-left:auto}
+
+/* ---------- toast ---------- */
+#toast{position:fixed;left:50%;bottom:5.5rem;transform:translateX(-50%);background:var(--inkoust);color:#fff;padding:.7rem 1.1rem;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:50;max-width:calc(100% - 2rem)}
+#toast.chyba{background:var(--pozor)}
+
+/* ---------- mobil ---------- */
+@media (max-width:640px){
+  .uzivatel{display:none}
+  .taby{position:fixed;bottom:0;left:0;right:0;z-index:20;border-top:1px solid var(--linka);border-bottom:0;padding-bottom:env(safe-area-inset-bottom)}
+  .taby-in{padding:0}
+  .tab{flex:1;border-bottom:0;border-top:4px solid transparent;padding:.7rem .5rem}
+  .tab[aria-selected="true"]{border-top-color:var(--metr)}
+  .polozka{grid-template-columns:56px 1fr}
+  .obr{width:56px;height:56px}
+  .p-vpravo{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:center;text-align:left}
+  .cenik-radek{grid-template-columns:1fr auto}
+  .cenik-radek .c-typ{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= PŘIHLÁŠENÍ ================= -->
+<section id="obr-prihlaseni" class="skryt">
+  <div class="vstup">
+    <div class="metr">
+      <div class="znacka">YeY</div>
+      <div class="znacka-pod">Kancelář pro řemeslníky</div>
+    </div>
+    <form id="f-prihlaseni" novalidate>
+      <h2 id="p-titulek">Přihlášení</h2>
+      <div class="radek">
+        <label for="p-email">E-mail</label>
+        <input id="p-email" class="pole" type="email" autocomplete="email" required>
+      </div>
+      <div class="radek" id="p-heslo-radek">
+        <label for="p-heslo">Heslo</label>
+        <input id="p-heslo" class="pole" type="password" autocomplete="current-password" minlength="8" required>
+        <p class="napoveda skryt" id="p-heslo-napoveda">Aspoň 8 znaků.</p>
+      </div>
+      <button class="btn" id="p-tlacitko" type="submit">Přihlásit se</button>
+      <div class="hlaska" id="p-hlaska" role="status"></div>
+      <div class="prepinace">
+        <button type="button" class="odkaz" data-rezim="registrace" id="p-na-registraci">Vytvořit účet</button>
+        <button type="button" class="odkaz" data-rezim="zapomenute" id="p-na-zapomenute">Zapomenuté heslo</button>
+        <button type="button" class="odkaz skryt" data-rezim="prihlaseni" id="p-na-prihlaseni">Zpět na přihlášení</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- ================= NOVÉ HESLO ================= -->
+<section id="obr-heslo" class="skryt">
+  <div class="vstup">
+    <div class="metr">
+      <div class="znacka">YeY</div>
+      <div class="znacka-pod">Kancelář pro řemeslníky</div>
+    </div>
+    <form id="f-heslo" novalidate>
+      <h2>Nastavit nové heslo</h2>
+      <div class="radek">
+        <label for="n-heslo">Nové heslo</label>
+        <input id="n-heslo" class="pole" type="password" autocomplete="new-password" minlength="8" required>
+        <p class="napoveda">Aspoň 8 znaků.</p>
+      </div>
+      <button class="btn" type="submit">Uložit heslo</button>
+      <div class="hlaska" id="n-hlaska" role="status"></div>
+    </form>
+  </div>
+</section>
+
+<!-- ================= APLIKACE ================= -->
+<section id="obr-app" class="skryt">
+  <header class="hlavicka">
+    <div class="hlavicka-in">
+      <span class="znacka">YeY</span>
+      <span class="firma-nazev" id="h-firma">…</span>
+      <span class="uzivatel" id="h-uzivatel"></span>
+      <button class="btn btn-tichy" id="odhlasit">Odhlásit</button>
+    </div>
+  </header>
+
+  <nav class="taby" aria-label="Sekce">
+    <div class="taby-in" role="tablist">
+      <button class="tab" role="tab" data-tab="katalog" aria-selected="true">Katalog</button>
+      <button class="tab" role="tab" data-tab="cenik" aria-selected="false">Ceník</button>
+      <button class="tab" role="tab" data-tab="firma" aria-selected="false">Firma</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- KATALOG -->
+    <section id="v-katalog">
+      <div class="pas metr">
+        <div class="hledani">
+          <input id="k-hledat" class="pole" type="search" placeholder="Hledat materiál, kód nebo EAN" autocomplete="off" aria-label="Hledat v katalogu">
+        </div>
+        <div class="pas-info">
+          <label class="zatrzitko"><input type="checkbox" id="k-skladem"> Jen skladem</label>
+          <span id="k-stav">Katalog se načítá…</span>
+        </div>
+      </div>
+      <div class="seznam" id="k-seznam">
+        <div class="prazdno">Začni psát, co hledáš – třeba „ytong 60x25“ nebo „cw 75“.</div>
+      </div>
+    </section>
+
+    <!-- CENÍK -->
+    <section id="v-cenik" class="skryt">
+      <div class="nastroje">
+        <input id="c-filtr" class="pole" type="search" placeholder="Filtrovat ceník" aria-label="Filtrovat ceník">
+        <button class="btn btn-metr" id="c-pridat">Přidat položku</button>
+      </div>
+      <div class="seznam" id="c-seznam"><div class="prazdno">Načítám ceník…</div></div>
+    </section>
+
+    <!-- FIRMA -->
+    <section id="v-firma" class="skryt">
+      <form class="formular" id="f-firma">
+        <h2>Údaje firmy</h2>
+        <div class="radek">
+          <label for="f-nazev">Název nebo jméno</label>
+          <input id="f-nazev" class="pole" required>
+        </div>
+        <div class="mrizka">
+          <div class="radek">
+            <label for="f-ico">IČO</label>
+            <input id="f-ico" class="pole" inputmode="numeric" maxlength="8">
+          </div>
+          <div class="radek">
+            <label for="f-dic">DIČ</label>
+            <input id="f-dic" class="pole" maxlength="14">
+          </div>
+        </div>
+        <div class="radek">
+          <label class="zatrzitko"><input type="checkbox" id="f-platce"> Jsem plátce DPH</label>
+        </div>
+        <button class="btn" type="submit" id="f-ulozit">Uložit údaje</button>
+        <p class="napoveda" id="f-napoveda"></p>
+      </form>
+    </section>
+  </main>
+</section>
+
+<!-- ================= DIALOG POLOŽKY ================= -->
+<dialog id="dlg">
+  <form id="f-polozka" method="dialog" novalidate>
+    <div class="metr dlg-hlava">
+      <button type="button" class="dlg-zavrit" aria-label="Zavřít" data-zavrit>×</button>
+      <h2 id="d-titulek">Položka ceníku</h2>
+    </div>
+    <div class="dlg-telo">
+      <input type="hidden" id="d-id">
+      <input type="hidden" id="d-katalog">
+      <div class="radek">
+        <label for="d-nazev">Název</label>
+        <input id="d-nazev" class="pole" required>
+      </div>
+      <div class="mrizka">
+        <div class="radek">
+          <label for="d-typ">Typ</label>
+          <select id="d-typ" class="pole">
+            <option value="material">Materiál</option>
+            <option value="prace">Práce</option>
+            <option value="ostatni">Ostatní</option>
+          </select>
+        </div>
+        <div class="radek">
+          <label for="d-mj">Jednotka</label>
+          <input id="d-mj" class="pole" placeholder="ks, m², hod">
+        </div>
+        <div class="radek">
+          <label for="d-dph">Sazba DPH %</label>
+          <select id="d-dph" class="pole">
+            <option value="21">21</option>
+            <option value="12">12</option>
+            <option value="0">0</option>
+          </select>
+        </div>
+      </div>
+      <div class="mrizka">
+        <div class="radek">
+          <label for="d-nakup">Nákup bez DPH</label>
+          <input id="d-nakup" class="pole" inputmode="decimal">
+        </div>
+        <div class="radek">
+          <label for="d-prirazka">Přirážka %</label>
+          <input id="d-prirazka" class="pole" inputmode="decimal">
+        </div>
+        <div class="radek">
+          <label for="d-prodej">Prodej bez DPH</label>
+          <input id="d-prodej" class="pole" inputmode="decimal">
+        </div>
+      </div>
+      <p class="napoveda skryt" id="d-napoveda-kat">Nákup je předvyplněný z ceny s DPH v katalogu. Přepiš ho na svou skutečnou nákupní cenu.</p>
+      <div class="souhrn">
+        <span>Prodej s DPH</span>
+        <span class="cena" id="d-sdph">–</span>
+      </div>
+      <div class="radek">
+        <label for="d-poznamka">Poznámka</label>
+        <textarea id="d-poznamka" class="pole" rows="2"></textarea>
+      </div>
+      <div class="dlg-pata">
+        <button type="button" class="btn btn-pozor skryt" id="d-smazat">Smazat</button>
+        <div class="vpravo">
+          <button type="button" class="btn btn-tichy" data-zavrit>Zrušit</button>
+          <button type="submit" class="btn" id="d-ulozit">Uložit do ceníku</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="skryt" role="status" aria-live="polite"></div>
+
+<script>
+/* ================= NASTAVENÍ ================= */
+const SUPABASE_URL = 'https://hkzhjoveiqadezmvksdz.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_WUy9urfE9n5O2SelitV6FA_mhzCUrM_';   // veřejný klíč – smí být v kódu
+const APP_URL = location.origin + location.pathname;
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ================= POMOCNÉ ================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cislo = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+const zaokr = n => Math.round(n * 100) / 100;
+const kc = n => (n == null || !Number.isFinite(Number(n))) ? '–'
+  : Number(n).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Kč';
+const vPole = n => (n == null || !Number.isFinite(Number(n))) ? '' : String(zaokr(Number(n))).replace('.', ',');
+const ks = n => Number(n).toLocaleString('cs-CZ', { maximumFractionDigits: 2 });
+const httpsUrl = u => /^https:\/\//i.test(u || '') ? u : '';
+const TYPY = { material: 'Materiál', prace: 'Práce', ostatni: 'Ostatní' };
+
+const pamet = {
+  cti(k, v) { try { const x = localStorage.getItem('yey:' + k); return x == null ? v : x; } catch (e) { return v; } },
+  pis(k, v) { try { localStorage.setItem('yey:' + k, v); } catch (e) {} }
+};
+
+let toastCas;
+function toast(text, chyba = false) {
+  const t = $('#toast');
+  t.textContent = text;
+  t.classList.toggle('chyba', chyba);
+  t.classList.remove('skryt');
+  clearTimeout(toastCas);
+  toastCas = setTimeout(() => t.classList.add('skryt'), chyba ? 6000 : 3000);
+}
+
+function prelozChybu(e) {
+  const m = String(e?.message || e || '');
+  if (/Invalid login credentials/i.test(m)) return 'Špatný e-mail nebo heslo.';
+  if (/Email not confirmed/i.test(m)) return 'E-mail ještě není potvrzený. Klikni na odkaz, který ti přišel.';
+  if (/already registered|already been registered/i.test(m)) return 'Účet s tímto e-mailem už existuje. Přihlas se, nebo si obnov heslo.';
+  if (/rate limit|too many/i.test(m)) return 'Příliš mnoho pokusů. Zkus to za pár minut.';
+  if (/Password should be at least|at least \d+ characters/i.test(m)) return 'Heslo je příliš krátké, použij aspoň 8 znaků.';
+  if (/weak/i.test(m)) return 'Heslo je příliš slabé. Přidej čísla nebo další znaky.';
+  if (/same_password|different from the old/i.test(m)) return 'Nové heslo musí být jiné než staré.';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'Nepodařilo se spojit se serverem. Zkontroluj připojení.';
+  return m || 'Něco se nepovedlo.';
+}
+
+/* ================= STAV A OBRAZOVKY ================= */
+const stav = { user: null, firma: null, role: null, katalog: [], cenik: [], obnovaHesla: false, rezim: 'prihlaseni' };
+
+function ukaz(obr) {
+  ['prihlaseni', 'heslo', 'app'].forEach(o => $('#obr-' + o).classList.toggle('skryt', o !== obr));
+}
+
+/* ================= PŘIHLÁŠENÍ ================= */
+function nastavRezim(r) {
+  stav.rezim = r;
+  const reg = r === 'registrace', zap = r === 'zapomenute';
+  $('#p-titulek').textContent = reg ? 'Nový účet' : zap ? 'Obnova hesla' : 'Přihlášení';
+  $('#p-tlacitko').textContent = reg ? 'Vytvořit účet' : zap ? 'Poslat odkaz na obnovu' : 'Přihlásit se';
+  $('#p-heslo-radek').classList.toggle('skryt', zap);
+  $('#p-heslo-napoveda').classList.toggle('skryt', !reg);
+  $('#p-heslo').autocomplete = reg ? 'new-password' : 'current-password';
+  $('#p-na-registraci').classList.toggle('skryt', r !== 'prihlaseni');
+  $('#p-na-zapomenute').classList.toggle('skryt', r !== 'prihlaseni');
+  $('#p-na-prihlaseni').classList.toggle('skryt', r === 'prihlaseni');
+  $('#p-hlaska').textContent = '';
+  $('#p-hlaska').className = 'hlaska';
+}
+$$('[data-rezim]').forEach(b => b.addEventListener('click', () => nastavRezim(b.dataset.rezim)));
+
+function hlaska(el, text, chyba = false) {
+  el.textContent = text;
+  el.className = 'hlaska' + (chyba ? ' chyba' : '');
+}
+
+$('#f-prihlaseni').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('#p-email').value.trim();
+  const heslo = $('#p-heslo').value;
+  const h = $('#p-hlaska');
+  const btn = $('#p-tlacitko');
+  if (!/^\S+@\S+\.\S+$/.test(email)) return hlaska(h, 'Zadej platný e-mail.', true);
+  if (stav.rezim !== 'zapomenute' && heslo.length < (stav.rezim === 'registrace' ? 8 : 1)) {
+    return hlaska(h, stav.rezim === 'registrace' ? 'Heslo musí mít aspoň 8 znaků.' : 'Zadej heslo.', true);
+  }
+  btn.disabled = true;
+  try {
+    if (stav.rezim === 'prihlaseni') {
+      const { error } = await sb.auth.signInWithPassword({ email, password: heslo });
+      if (error) throw error;
+    } else if (stav.rezim === 'registrace') {
+      const { data, error } = await sb.auth.signUp({ email, password: heslo, options: { emailRedirectTo: APP_URL } });
+      if (error) throw error;
+      if (!data.session) hlaska(h, 'Hotovo. Na ' + email + ' jsme poslali odkaz pro potvrzení účtu. Po kliknutí se můžeš přihlásit.');
+    } else {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
+      if (error) throw error;
+      hlaska(h, 'Pokud účet existuje, přišel ti e-mail s odkazem na nastavení nového hesla.');
+    }
+  } catch (err) {
+    hlaska(h, prelozChybu(err), true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#f-heslo').addEventListener('submit', async e => {
+  e.preventDefault();
+  const heslo = $('#n-heslo').value;
+  const h = $('#n-hlaska');
+  if (heslo.length < 8) return hlaska(h, 'Heslo musí mít aspoň 8 znaků.', true);
+  const { data, error } = await sb.auth.updateUser({ password: heslo });
+  if (error) return hlaska(h, prelozChybu(error), true);
+  stav.obnovaHesla = false;
+  history.replaceState(null, '', APP_URL);
+  toast('Heslo je změněné.');
+  start(data.user);
+});
+
+$('#odhlasit').addEventListener('click', async () => {
+  await sb.auth.signOut();
+});
+
+sb.auth.onAuthStateChange((udalost, session) => {
+  // Supabase doporučuje v tomto callbacku nevolat další dotazy přímo
+  setTimeout(() => {
+    if (udalost === 'PASSWORD_RECOVERY') {
+      stav.obnovaHesla = true;
+      ukaz('heslo');
+      return;
+    }
+    if (stav.obnovaHesla) return;
+    if (!session) {
+      stav.user = null; stav.firma = null; stav.cenik = []; stav.katalog = [];
+      nastavRezim('prihlaseni');
+      ukaz('prihlaseni');
+      return;
+    }
+    if (udalost === 'INITIAL_SESSION' || udalost === 'SIGNED_IN') start(session.user);
+  }, 0);
+});
+
+/* ================= START PO PŘIHLÁŠENÍ ================= */
+async function start(user) {
+  if (stav.user && stav.user.id === user.id) return;
+  stav.user = user;
+  ukaz('app');
+  $('#h-uzivatel').textContent = user.email;
+  if (location.hash) history.replaceState(null, '', APP_URL);
+
+  const { data, error } = await sb.from('clenove')
+    .select('role, firma:firmy(id, nazev, ico, dic, platce_dph, tarif)')
+    .eq('user_id', user.id).limit(1).maybeSingle();
+  if (error || !data || !data.firma) {
+    toast(error ? 'Firmu se nepodařilo načíst: ' + prelozChybu(error) : 'K účtu není přiřazená žádná firma.', true);
+    $('#h-firma').textContent = 'Bez firmy';
+    return;
+  }
+  stav.firma = data.firma;
+  stav.role = data.role;
+  vykresliFirmu();
+  nactiStavKatalogu();
+  nactiCenik();
+  prepniTab('katalog');
+}
+
+/* ================= TABY ================= */
+function prepniTab(tab) {
+  $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  ['katalog', 'cenik', 'firma'].forEach(t => $('#v-' + t).classList.toggle('skryt', t !== tab));
+  if (tab === 'katalog') $('#k-hledat').focus({ preventScroll: true });
+}
+$$('.tab').forEach(b => b.addEventListener('click', () => prepniTab(b.dataset.tab)));
+
+/* ================= KATALOG ================= */
+async function nactiStavKatalogu() {
+  const { data } = await sb.from('dodavatele').select('nazev, posledni_import').eq('aktivni', true);
+  const d = (data || []).filter(x => x.posledni_import).sort((a, b) => b.posledni_import.localeCompare(a.posledni_import))[0];
+  $('#k-stav').textContent = d
+    ? 'Ceny a zásoby ' + d.nazev + ' k ' + new Date(d.posledni_import).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : 'Katalog zatím nemá data.';
+}
+
+let hledaniCislo = 0, hledaniCas;
+$('#k-hledat').addEventListener('input', () => {
+  clearTimeout(hledaniCas);
+  hledaniCas = setTimeout(hledej, 300);
+});
+$('#k-skladem').addEventListener('change', () => vykresliKatalog());
+
+async function hledej() {
+  const q = $('#k-hledat').value.replace(/[%,()*\\"]/g, ' ').replace(/\s+/g, ' ').trim();
+  const moje = ++hledaniCislo;
+  if (q.length < 2) {
+    stav.katalog = [];
+    $('#k-seznam').innerHTML = '<div class="prazdno">Začni psát, co hledáš – třeba „ytong 60x25“ nebo „cw 75“.</div>';
+    return;
+  }
+  let dotaz = sb.from('katalog')
+    .select('id, kod, ean, nazev, mj, rozmer, pocet_na_palete, cena_s_dph, sazba_dph, zasoby, url_produktu, url_obrazku')
+    .order('nazev').limit(60);
+  if (/^\d{3,}$/.test(q)) {
+    dotaz = dotaz.or(`kod.eq.${q},ean.eq.${q},nazev.ilike.%${q}%`);
+  } else {
+    q.split(' ').slice(0, 6).forEach(slovo => { dotaz = dotaz.ilike('nazev', `%${slovo}%`); });
+  }
+  $('#k-seznam').setAttribute('aria-busy', 'true');
+  const { data, error } = await dotaz;
+  if (moje !== hledaniCislo) return;
+  $('#k-seznam').removeAttribute('aria-busy');
+  if (error) {
+    $('#k-seznam').innerHTML = `<div class="prazdno chyba">Hledání selhalo: ${esc(prelozChybu(error))}</div>`;
+    return;
+  }
+  stav.katalog = data || [];
+  vykresliKatalog();
+}
+
+function zasobaStitky(z) {
+  z = z || {};
+  const s = [];
+  [['malesice', 'Malešice'], ['liben', 'Libeň']].forEach(([k, jm]) => {
+    if (z[k] == null) return;
+    const n = Number(z[k]);
+    s.push(`<span class="stitek${n > 0 ? ' ok' : ''}">${jm} ${n > 0 ? ks(n) : '0'}</span>`);
+  });
+  return s.join('');
+}
+
+function vykresliKatalog() {
+  const el = $('#k-seznam');
+  if (!$('#k-hledat').value.trim() || $('#k-hledat').value.trim().length < 2) return;
+  const jenSkladem = $('#k-skladem').checked;
+  const vCeniku = new Set(stav.cenik.map(c => c.katalog_id).filter(Boolean));
+  const radky = stav.katalog.filter(p => !jenSkladem || (Number(p.zasoby?.malesice) > 0 || Number(p.zasoby?.liben) > 0));
+  if (!radky.length) {
+    el.innerHTML = `<div class="prazdno">${stav.katalog.length ? 'Nic z nalezeného není skladem. Zruš filtr „Jen skladem“.' : 'Nic nenalezeno. Zkus kratší slovo nebo kód.'}</div>`;
+    return;
+  }
+  el.innerHTML = radky.map(p => {
+    const img = httpsUrl(p.url_obrazku);
+    const eshop = httpsUrl(p.url_produktu);
+    const meta = [ 'kód ' + p.kod, p.rozmer, p.pocet_na_palete ? ks(p.pocet_na_palete) + ' na paletě' : '' ].filter(Boolean).join(', ');
+    return `
+    <div class="polozka">
+      <div class="obr${img ? '' : ' bez-obr'}">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ''}</div>
+      <div>
+        <div class="p-nazev">${esc(p.nazev)}</div>
+        <div class="p-meta">${esc(meta)}</div>
+        <div class="stitky">${zasobaStitky(p.zasoby)}${vCeniku.has(p.id) ? '<span class="stitek v-ceniku">V ceníku</span>' : ''}</div>
+      </div>
+      <div class="p-vpravo">
+        <div class="cena">${kc(p.cena_s_dph)}<small>s DPH / ${esc((p.mj || 'ks').toLowerCase())}</small></div>
+        <div class="p-akce">
+          ${eshop ? `<a class="btn btn-tichy" href="${esc(eshop)}" target="_blank" rel="noopener">E-shop</a>` : ''}
+          <button class="btn btn-metr" data-do-ceniku="${esc(p.id)}">Do ceníku</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// nenačtený obrázek nahradit ikonou
+$('#k-seznam').addEventListener('error', e => {
+  if (e.target.tagName === 'IMG') { e.target.parentElement.classList.add('bez-obr'); e.target.remove(); }
+}, true);
+
+$('#k-seznam').addEventListener('click', e => {
+  const b = e.target.closest('[data-do-ceniku]');
+  if (!b) return;
+  const p = stav.katalog.find(x => x.id === b.dataset.doCeniku);
+  if (!p) return;
+  const existujici = stav.cenik.find(c => c.katalog_id === p.id);
+  if (existujici) { otevriPolozku(existujici); toast('Položka už v ceníku je, můžeš ji upravit.'); return; }
+  const sazba = Number(p.sazba_dph ?? 21);
+  otevriPolozku({
+    katalog_id: p.id,
+    nazev: p.nazev,
+    typ: 'material',
+    mj: (p.mj || '').toLowerCase(),
+    sazba_dph: sazba,
+    nakupni_bez_dph: p.cena_s_dph != null ? zaokr(p.cena_s_dph / (1 + sazba / 100)) : null,
+    prirazka_pct: cislo(pamet.cti('prirazka', '15')) ?? 0,
+    poznamka: 'Kód ' + p.kod
+  }, true);
+});
+
+/* ================= CENÍK ================= */
+async function nactiCenik() {
+  const { data, error } = await sb.from('cenik')
+    .select('*')
+    .eq('firma_id', stav.firma.id)
+    .order('nazev');
+  if (error) {
+    $('#c-seznam').innerHTML = `<div class="prazdno chyba">Ceník se nepodařilo načíst: ${esc(prelozChybu(error))}</div>`;
+    return;
+  }
+  stav.cenik = data || [];
+  vykresliCenik();
+  vykresliKatalog();
+}
+
+$('#c-filtr').addEventListener('input', vykresliCenik);
+$('#c-pridat').addEventListener('click', () => otevriPolozku({ typ: 'material', sazba_dph: 21, prirazka_pct: 0 }));
+
+function sDph(c) {
+  return c.prodejni_bez_dph == null ? null : zaokr(c.prodejni_bez_dph * (1 + Number(c.sazba_dph ?? 21) / 100));
+}
+
+function vykresliCenik() {
+  const el = $('#c-seznam');
+  const f = $('#c-filtr').value.trim().toLowerCase();
+  const radky = stav.cenik.filter(c => !f || (c.nazev || '').toLowerCase().includes(f) || (c.poznamka || '').toLowerCase().includes(f));
+  if (!stav.cenik.length) {
+    el.innerHTML = '<div class="prazdno">Ceník je prázdný. Najdi materiál v katalogu a dej „Do ceníku“, nebo přidej vlastní položku či práci.</div>';
+    return;
+  }
+  if (!radky.length) { el.innerHTML = '<div class="prazdno">Filtru nic neodpovídá.</div>'; return; }
+  el.innerHTML = radky.map(c => `
+    <button class="cenik-radek" data-id="${esc(c.id)}">
+      <span>
+        <span class="p-nazev">${esc(c.nazev)}</span>
+        <span class="p-meta" style="display:block">${esc([c.mj, c.prirazka_pct ? 'přirážka ' + ks(c.prirazka_pct) + ' %' : '', c.poznamka].filter(Boolean).join(', '))}</span>
+      </span>
+      <span class="stitek c-typ">${esc(TYPY[c.typ] || c.typ)}</span>
+      <span class="c-ceny"><span class="cena">${kc(c.prodejni_bez_dph)}</span>bez DPH, s DPH ${kc(sDph(c))}</span>
+    </button>`).join('');
+}
+
+$('#c-seznam').addEventListener('click', e => {
+  const r = e.target.closest('.cenik-radek');
+  if (!r) return;
+  const c = stav.cenik.find(x => x.id === r.dataset.id);
+  if (c) otevriPolozku(c);
+});
+
+/* ================= DIALOG POLOŽKY ================= */
+const dlg = $('#dlg');
+
+function otevriPolozku(c, zKatalogu = false) {
+  $('#d-id').value = c.id || '';
+  $('#d-katalog').value = c.katalog_id || '';
+  $('#d-titulek').textContent = c.id ? 'Upravit položku' : 'Nová položka ceníku';
+  $('#d-nazev').value = c.nazev || '';
+  $('#d-typ').value = c.typ || 'material';
+  $('#d-mj').value = c.mj || '';
+  $('#d-dph').value = String(Number(c.sazba_dph ?? 21));
+  $('#d-nakup').value = vPole(c.nakupni_bez_dph);
+  $('#d-prirazka').value = vPole(c.prirazka_pct ?? 0);
+  $('#d-poznamka').value = c.poznamka || '';
+  if (c.prodejni_bez_dph != null) $('#d-prodej').value = vPole(c.prodejni_bez_dph);
+  else prepocitejProdej();
+  $('#d-napoveda-kat').classList.toggle('skryt', !zKatalogu);
+  $('#d-smazat').classList.toggle('skryt', !c.id);
+  prepocitejSouhrn();
+  dlg.showModal();
+  $('#d-nazev').focus();
+}
+
+function prepocitejProdej() {
+  const n = cislo($('#d-nakup').value), p = cislo($('#d-prirazka').value) ?? 0;
+  $('#d-prodej').value = n == null ? '' : vPole(n * (1 + p / 100));
+}
+function prepocitejPrirazku() {
+  const n = cislo($('#d-nakup').value), s = cislo($('#d-prodej').value);
+  if (n && s != null) $('#d-prirazka').value = vPole((s / n - 1) * 100);
+}
+function prepocitejSouhrn() {
+  const s = cislo($('#d-prodej').value), d = cislo($('#d-dph').value) ?? 21;
+  $('#d-sdph').textContent = s == null ? '–' : kc(s * (1 + d / 100));
+}
+$('#d-nakup').addEventListener('input', () => { prepocitejProdej(); prepocitejSouhrn(); });
+$('#d-prirazka').addEventListener('input', () => { prepocitejProdej(); prepocitejSouhrn(); });
+$('#d-prodej').addEventListener('input', () => { prepocitejPrirazku(); prepocitejSouhrn(); });
+$('#d-dph').addEventListener('change', prepocitejSouhrn);
+$$('[data-zavrit]').forEach(b => b.addEventListener('click', () => dlg.close()));
+
+$('#f-polozka').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nazev = $('#d-nazev').value.trim();
+  if (!nazev) { toast('Doplň název položky.', true); $('#d-nazev').focus(); return; }
+  const nakup = cislo($('#d-nakup').value);
+  const prirazka = cislo($('#d-prirazka').value) ?? 0;
+  const prodej = cislo($('#d-prodej').value);
+  const zaznam = {
+    nazev,
+    typ: $('#d-typ').value,
+    mj: $('#d-mj').value.trim() || null,
+    sazba_dph: cislo($('#d-dph').value) ?? 21,
+    nakupni_bez_dph: nakup == null ? null : zaokr(nakup),
+    prirazka_pct: zaokr(prirazka),
+    prodejni_bez_dph: prodej == null ? null : zaokr(prodej),
+    poznamka: $('#d-poznamka').value.trim() || null
+  };
+  const id = $('#d-id').value;
+  const btn = $('#d-ulozit');
+  btn.disabled = true;
+  let vysledek;
+  if (id) {
+    vysledek = await sb.from('cenik').update(zaznam).eq('id', id);
+  } else {
+    zaznam.firma_id = stav.firma.id;
+    zaznam.katalog_id = $('#d-katalog').value || null;
+    vysledek = await sb.from('cenik').insert(zaznam);
+  }
+  btn.disabled = false;
+  if (vysledek.error) { toast('Uložení selhalo: ' + prelozChybu(vysledek.error), true); return; }
+  if (zaznam.typ === 'material') pamet.pis('prirazka', String(zaznam.prirazka_pct));
+  dlg.close();
+  toast(id ? 'Položka upravena.' : 'Uloženo do ceníku.');
+  nactiCenik();
+});
+
+$('#d-smazat').addEventListener('click', async () => {
+  const id = $('#d-id').value;
+  if (!id || !confirm('Smazat položku z ceníku?')) return;
+  const { error } = await sb.from('cenik').delete().eq('id', id);
+  if (error) { toast('Smazání selhalo: ' + prelozChybu(error), true); return; }
+  dlg.close();
+  toast('Položka smazána.');
+  nactiCenik();
+});
+
+/* ================= FIRMA ================= */
+function vykresliFirmu() {
+  const f = stav.firma;
+  $('#h-firma').textContent = f.nazev;
+  $('#f-nazev').value = f.nazev || '';
+  $('#f-ico').value = f.ico || '';
+  $('#f-dic').value = f.dic || '';
+  $('#f-platce').checked = !!f.platce_dph;
+  const vlastnik = stav.role === 'vlastnik';
+  $$('#f-firma input, #f-firma button').forEach(x => { x.disabled = !vlastnik; });
+  $('#f-napoveda').textContent = vlastnik ? '' : 'Údaje firmy může měnit jen vlastník účtu.';
+}
+
+$('#f-firma').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nazev = $('#f-nazev').value.trim();
+  const ico = $('#f-ico').value.replace(/\s/g, '');
+  if (!nazev) { toast('Doplň název firmy.', true); return; }
+  if (ico && !/^\d{8}$/.test(ico)) { toast('IČO má 8 číslic.', true); return; }
+  const zmena = {
+    nazev,
+    ico: ico || null,
+    dic: $('#f-dic').value.replace(/\s/g, '').toUpperCase() || null,
+    platce_dph: $('#f-platce').checked
+  };
+  $('#f-ulozit').disabled = true;
+  const { data, error } = await sb.from('firmy').update(zmena).eq('id', stav.firma.id).select().maybeSingle();
+  $('#f-ulozit').disabled = false;
+  if (error || !data) { toast('Uložení selhalo: ' + prelozChybu(error || 'nemáš oprávnění'), true); return; }
+  stav.firma = { ...stav.firma, ...data };
+  vykresliFirmu();
+  toast('Údaje firmy uloženy.');
+});
+</script>
+</body>
+</html>
