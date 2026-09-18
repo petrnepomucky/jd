@@ -520,6 +520,10 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
   <div class="metr dlg-hlava">
     <button type="button" class="dlg-zavrit" aria-label="Zavřít" data-zavrit>×</button>
     <h2 id="vd-titulek">Vybrat položku</h2>
+    <div class="chipy" id="vd-zdroje" style="margin-top:.5rem">
+      <button class="chip" type="button" data-zdroj="cenik" aria-pressed="true">Z ceníku</button>
+      <button class="chip" type="button" data-zdroj="katalog" aria-pressed="false">Z katalogu</button>
+    </div>
   </div>
   <div class="dlg-telo">
     <input id="vd-hledat" class="pole" type="search" placeholder="Hledat" style="margin-bottom:.8rem">
@@ -1094,7 +1098,7 @@ async function novyDoklad(typ, zaklad = null) {
     if (kopie.length) await sb.from('polozky_dokladu').insert(kopie);
   }
   await nactiDoklady();
-  otevriDoklad(data.id);
+  await otevriDoklad(data.id);
 }
 
 /* ================= EDITOR DOKLADU ================= */
@@ -1141,7 +1145,10 @@ function vykresliPolozky() {
       <input class="pole" data-f="sleva_pct" inputmode="decimal" value="${vPole(p.sleva_pct)}" aria-label="Sleva">
       <input class="pole" data-f="sazba_dph" inputmode="decimal" value="${vPole(p.sazba_dph)}" aria-label="DPH">
       <input class="pole vpravo" data-f="cena_bez_dph" inputmode="decimal" value="${vPole(p.cena_bez_dph)}" aria-label="Cena bez DPH">
-      <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek">×</button>
+      <span style="display:flex;gap:.25rem">
+        <button class="btn btn-tichy btn-maly" data-vymenit="${i}" aria-label="Vybrat materiál z ceníku nebo katalogu" title="Vybrat materiál z ceníku nebo katalogu">⇄</button>
+        <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek">×</button>
+      </span>
     </div>`).join('');
   souhrnDoklad();
   obnovInfo();
@@ -1155,8 +1162,32 @@ $('#d-polozky').addEventListener('input', e => {
   souhrnDoklad(); obnovInfo();
 });
 $('#d-polozky').addEventListener('click', e => {
-  const b = e.target.closest('[data-smazat]'); if (!b) return;
-  stav.polozky.splice(Number(b.dataset.smazat), 1); vykresliPolozky();
+  const b = e.target.closest('[data-smazat]');
+  if (b) { stav.polozky.splice(Number(b.dataset.smazat), 1); vykresliPolozky(); return; }
+
+  const v = e.target.closest('[data-vymenit]');
+  if (!v) return;
+  const i = Number(v.dataset.vymenit);
+  const p = stav.polozky[i];
+  otevriVyber(p.katalog_id ? 'katalog' : 'cenik', async (zdroj, rezim) => {
+    const mn = p.mnozstvi;
+    if (rezim === 'cenik') {
+      Object.assign(p, { cenik_id: zdroj.id, katalog_id: zdroj.katalog_id || null, typ: zdroj.typ || 'material',
+        nazev: zdroj.nazev, mj: zdroj.mj || p.mj, cena_bez_dph: zdroj.prodejni_bez_dph ?? 0,
+        sazba_dph: stav.firma.platce_dph ? Number(zdroj.sazba_dph ?? 21) : 0 });
+    } else {
+      const sazba = Number(zdroj.sazba_dph ?? 21);
+      const vCeniku = stav.cenik.find(c => c.katalog_id === zdroj.id);
+      Object.assign(p, { cenik_id: vCeniku?.id || null, katalog_id: zdroj.id, typ: 'material',
+        nazev: zdroj.nazev, mj: (zdroj.mj || p.mj || '').toLowerCase(),
+        cena_bez_dph: vCeniku?.prodejni_bez_dph ?? (zdroj.cena_s_dph != null ? zaokr(zdroj.cena_s_dph / (1 + sazba / 100)) : 0),
+        sazba_dph: stav.firma.platce_dph ? sazba : 0, poznamka: p.poznamka || ('Kód ' + zdroj.kod) });
+    }
+    p.mnozstvi = mn;
+    await nactiKatalogoveCeny([p.katalog_id]);
+    vykresliPolozky();
+    toast('Položka vyměněna, množství zůstalo.');
+  });
 });
 
 function souhrnDoklad() {
@@ -1249,27 +1280,40 @@ $('#d-volna').addEventListener('click', () => {
 });
 
 function otevriVyber(rezim, callback = null) {
-  vyberRezim = rezim;
   vyberCallback = callback;
-  $('#vd-titulek').textContent = rezim === 'cenik' ? 'Vybrat z ceníku' : 'Vybrat z katalogu';
   $('#vd-hledat').value = '';
+  nastavZdroj(rezim);
   dlgVyber.showModal();
-  vykresliVyber(rezim === 'cenik' ? stav.cenik : []);
   $('#vd-hledat').focus();
+}
+
+/** Přepnutí mezi ceníkem a katalogem přímo v otevřeném dialogu. */
+function nastavZdroj(rezim) {
+  vyberRezim = rezim;
+  $('#vd-titulek').textContent = rezim === 'cenik' ? 'Vybrat z ceníku' : 'Vybrat z katalogu';
+  $('#vd-hledat').placeholder = rezim === 'cenik' ? 'Hledat v ceníku' : 'Hledat v katalogu (název, kód, EAN)';
+  $$('#vd-zdroje .chip').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.zdroj === rezim)));
+  hledejVeVyberu();
+}
+
+$('#vd-zdroje').addEventListener('click', e => {
+  const b = e.target.closest('[data-zdroj]');
+  if (b) nastavZdroj(b.dataset.zdroj);
+});
+
+async function hledejVeVyberu() {
+  const q = $('#vd-hledat').value.trim().toLowerCase();
+  if (vyberRezim === 'cenik') {
+    vykresliVyber(stav.cenik.filter(c => !q || (c.nazev || '').toLowerCase().includes(q)));
+  } else {
+    vykresliVyber(q.length < 2 ? [] : await hledejKatalog(q, 30));
+  }
 }
 
 let vyberCas;
 $('#vd-hledat').addEventListener('input', () => {
   clearTimeout(vyberCas);
-  vyberCas = setTimeout(async () => {
-    const q = $('#vd-hledat').value.trim().toLowerCase();
-    if (vyberRezim === 'cenik') {
-      vykresliVyber(stav.cenik.filter(c => !q || c.nazev.toLowerCase().includes(q)));
-    } else {
-      if (q.length < 2) return vykresliVyber([]);
-      vykresliVyber(await hledejKatalog(q, 30));
-    }
-  }, 300);
+  vyberCas = setTimeout(hledejVeVyberu, 300);
 });
 
 function vykresliVyber(polozky) {
@@ -1493,48 +1537,83 @@ const KALK = {
 
   sdk: {
     nazev: 'Sádrokarton', ikona: '🔲', schema: 'stena', otvory: true,
-    popis: 'Příčky, předstěny i podhledy. Vybraná konstrukce nastaví počet vrstev i profilů.',
+    popis: 'Příčky, předstěny i podhledy. Vyber opláštění, záklop a osovou vzdálenost, zbytek dopočítám.',
     sablony: [
-      { n: 'Příčka jednoduchá', h: { konstrukce: 'pricka', vrstvy: 2, rozten: 625, izolace: 1 } },
-      { n: 'Příčka dvojitě opláštěná', h: { konstrukce: 'pricka', vrstvy: 4, rozten: 625, izolace: 1 } },
-      { n: 'Předstěna', h: { konstrukce: 'predstena', vrstvy: 1, rozten: 625, izolace: 1 } },
-      { n: 'Podhled', h: { konstrukce: 'podhled', vrstvy: 1, rozten: 500, izolace: 0 } }
+      { n: 'Příčka W111', h: { konstrukce: 'pricka', strany: 'obe', zaklop: 'jednoduchy', rozten: 625, izolace: 1 } },
+      { n: 'Příčka W112 (dvojitý záklop)', h: { konstrukce: 'pricka', strany: 'obe', zaklop: 'dvojity', rozten: 625, izolace: 1 } },
+      { n: 'Příčka do vlhka / obklad', h: { konstrukce: 'pricka', strany: 'obe', zaklop: 'dvojity', rozten: 400, izolace: 1 } },
+      { n: 'Předstěna', h: { konstrukce: 'predstena', strany: 'jedna', zaklop: 'jednoduchy', rozten: 625, izolace: 1 } },
+      { n: 'Podhled', h: { konstrukce: 'podhled', strany: 'jedna', zaklop: 'jednoduchy', rozten: 500, izolace: 0 } }
     ],
     pole: [
       { id: 'delka', popis: 'Délka / šířka', mj: 'm', v: '', tip: 'U podhledu zadej šířku místnosti.' },
       { id: 'vyska', popis: 'Výška / hloubka', mj: 'm', v: '2,6', tip: 'U podhledu zadej délku místnosti.' },
       { id: 'konstrukce', popis: 'Konstrukce', typ: 'select', v: 'pricka',
         volby: [['pricka', 'Příčka'], ['predstena', 'Předstěna'], ['podhled', 'Podhled']] },
-      { id: 'vrstvy', popis: 'Vrstev desek celkem', v: '2', profi: P, tip: 'Příčka opláštěná z obou stran = 2. Dvojitě = 4.' },
-      { id: 'rozten', popis: 'Rozteč profilů', mj: 'mm', v: '625', profi: P, tip: '625 mm je standard, 400 mm pro obklady a těžká břemena.' },
+      { id: 'strany', popis: 'Opláštění', typ: 'select', v: 'obe',
+        volby: [['obe', 'Z obou stran'], ['jedna', 'Jen z jedné strany']],
+        tip: 'Příčka se obvykle opláští z obou stran, předstěna a podhled jen z jedné.' },
+      { id: 'zaklop', popis: 'Záklop', typ: 'select', v: 'jednoduchy',
+        volby: [['jednoduchy', 'Jednoduchý (1 deska)'], ['dvojity', 'Dvojitý (2 desky přes sebe)']],
+        tip: 'Dvojitý záklop se dělá kvůli požární odolnosti, akustice a pevnějšímu kotvení.' },
+      { id: 'rozten', popis: 'Osová vzdálenost profilů', typ: 'select', v: '625',
+        volby: [['625', '625 mm – standard'], ['500', '500 mm – podhledy'], ['400', '400 mm – obklad a zátěž'], ['300', '300 mm – těžká zátěž']],
+        tip: 'Čím menší vzdálenost, tím víc profilů. Pod obklad se dává 400 mm.' },
       { id: 'dd', popis: 'Deska – šířka', mj: 'm', v: '1,25', profi: P },
       { id: 'dv', popis: 'Deska – délka', mj: 'm', v: '2,6', profi: P },
       { id: 'prorez', popis: 'Prořez', mj: '%', v: '10', profi: P },
-      { id: 'izolace', popis: 'Izolace (1 = ano)', v: '1', profi: P, tip: 'Minerální vata do dutiny příčky.' }
+      { id: 'izolace', popis: 'Izolace (1 = ano)', v: '1', profi: P, tip: 'Minerální vata do dutiny konstrukce.' },
+      { id: 'vyztuzotvoru', popis: 'Vyztužit otvory (1 = ano)', v: '1', profi: P,
+        tip: 'Kolem dveří a oken se dávají UA profily s kotvami, aby konstrukce nepracovala.' }
     ],
-    jak: 'Plocha = délka × výška − otvory.\nOpláštění = plocha × počet vrstev × (1 + prořez).\nCW profily = délka / rozteč + 1, délka profilu podle výšky.\nUW = 2 × délka (příčka), u podhledu obvod místnosti.\nŠrouby 25 ks/m², tmel 0,4 kg/m², páska 1,2 bm/m² opláštění.\nPodhled navíc: přímé závěsy 2 ks/m².',
+    jak: 'Plocha = délka × výška − otvory.\nVrstev desek = strany × záklop (obě strany + dvojitý záklop = 4 vrstvy).\nOpláštění = plocha × vrstvy × (1 + prořez).\nSvislé profily = délka / osová vzdálenost + 1.\nVodorovné profily = 2 × délka, u podhledu obvod místnosti.\nŠrouby: první vrstva 12 ks/m² (rozteč 750 mm), pohledová vrstva 25 ks/m² (rozteč 250 mm).\nTmel 0,4 kg/m² a páska 1,2 bm/m² se počítají jen z pohledové vrstvy.\nVýztuž otvoru: UA profil = 2 × výška + šířka otvoru, 4 kotvy na otvor.',
     spocitej(h) {
       const plocha = h.plocha;
       if (!plocha || !h.dd || !h.dv) return null;
       const podhled = h.konstrukce === 'podhled';
-      const opl = plocha * (h.vrstvy || 1) * (1 + (h.prorez || 0) / 100);
-      const rozten = (h.rozten || 625) / 1000;
+      const stran = h.strany === 'obe' ? 2 : 1;
+      const vrstevNaStranu = h.zaklop === 'dvojity' ? 2 : 1;
+      const vrstvy = stran * vrstevNaStranu;
+      const prorez = 1 + (h.prorez || 0) / 100;
+      const opl = plocha * vrstvy * prorez;
+      const pohledova = plocha * stran;                       // jen finální vrstva
+      const rozten = Number(h.rozten || 625) / 1000;
+
       const r = [
         { klic: 'deska', nazev: 'Sádrokartonová deska', mnozstvi: Math.ceil(opl / (h.dd * h.dv)), mj: 'ks',
-          zaklad: `${ks3(zaokr(opl))} m² opláštění, deska ${ks3(zaokr(h.dd * h.dv))} m²` },
+          zaklad: `${ks3(zaokr(opl))} m² opláštění (${stran === 2 ? 'obě strany' : 'jedna strana'}, ${vrstevNaStranu === 2 ? 'dvojitý záklop' : 'jednoduchý záklop'}), deska ${ks3(zaokr(h.dd * h.dv))} m²` },
         { klic: 'cw', nazev: podhled ? 'Profil CD (nosný)' : 'Profil CW (svislý)',
           mnozstvi: Math.ceil((h.delka || 0) / rozten) + 1, mj: 'ks',
-          zaklad: `rozteč ${ks3(h.rozten || 625)} mm na ${ks3(h.delka || 0)} m` },
+          zaklad: `osová vzdálenost ${ks3(Number(h.rozten || 625))} mm na ${ks3(h.delka || 0)} m` },
         { klic: 'uw', nazev: podhled ? 'Profil UD (obvodový)' : 'Profil UW (vodorovný)',
           mnozstvi: Math.ceil(podhled ? 2 * ((h.delka || 0) + (h.vyska || 0)) : 2 * (h.delka || 0)), mj: 'bm',
           zaklad: podhled ? 'obvod místnosti' : 'podlaha a strop' },
-        { klic: 'srouby', nazev: 'Šrouby do sádrokartonu', mnozstvi: Math.ceil(opl * 25), mj: 'ks', zaklad: '25 ks/m² opláštění' },
-        { klic: 'tmel', nazev: 'Spárovací tmel', mnozstvi: Math.ceil(opl * 0.4), mj: 'kg', zaklad: '0,4 kg/m² opláštění' },
-        { klic: 'paska', nazev: 'Výztužná páska', mnozstvi: Math.ceil(opl * 1.2), mj: 'bm', zaklad: '1,2 bm/m² opláštění' }
+        { klic: 'srouby', nazev: 'Šrouby do sádrokartonu',
+          mnozstvi: Math.ceil(pohledova * 25 + (vrstevNaStranu === 2 ? pohledova * 12 : 0)), mj: 'ks',
+          zaklad: vrstevNaStranu === 2
+            ? `spodní vrstva 12 ks/m² + pohledová 25 ks/m² na ${ks3(zaokr(pohledova))} m²`
+            : `25 ks/m² na ${ks3(zaokr(pohledova))} m²` },
+        { klic: 'tmel', nazev: 'Spárovací tmel', mnozstvi: Math.ceil(pohledova * 0.4), mj: 'kg',
+          zaklad: `0,4 kg/m² pohledové plochy` },
+        { klic: 'paska', nazev: 'Výztužná páska', mnozstvi: Math.ceil(pohledova * 1.2), mj: 'bm',
+          zaklad: `1,2 bm/m² pohledové plochy` }
       ];
+
       if (podhled) r.push({ klic: 'zaves', nazev: 'Přímý závěs', mnozstvi: Math.ceil(plocha * 2), mj: 'ks', zaklad: '2 ks/m²' });
       if (h.izolace) r.push({ klic: 'izolace', nazev: 'Minerální izolace', mnozstvi: zaokr(plocha), mj: 'm²', zaklad: 'plocha konstrukce' });
-      r.push({ klic: 'tesneni', nazev: 'Napojovací těsnicí páska', mnozstvi: Math.ceil(podhled ? 2 * ((h.delka || 0) + (h.vyska || 0)) : 2 * (h.delka || 0) + 2 * (h.vyska || 0)), mj: 'bm',
+
+      const otvoru = (h.otvory || []).reduce((s, o) => s + (o.n || 0), 0);
+      if (h.vyztuzotvoru && otvoru) {
+        const bm = (h.otvory || []).reduce((s, o) => s + (2 * (o.v || 0) + (o.s || 0)) * (o.n || 0), 0);
+        r.push({ klic: 'ua', nazev: 'Výztužný profil UA k otvorům', mnozstvi: Math.ceil(bm), mj: 'bm',
+          zaklad: `${otvoru} ${otvoru === 1 ? 'otvor' : 'otvory'}: 2 × výška + šířka` });
+        r.push({ klic: 'kotvy', nazev: 'Kotvy UA profilu', mnozstvi: otvoru * 4, mj: 'ks', zaklad: '4 ks na otvor' });
+        r.push({ klic: 'preklad', nazev: 'Překlad nad otvorem (profil)', mnozstvi: Math.ceil((h.otvory || []).reduce((s, o) => s + (o.s || 0) * (o.n || 0) * 1.4, 0)), mj: 'bm',
+          zaklad: 'šířka otvoru + přesah 20 % na každou stranu' });
+      }
+
+      r.push({ klic: 'tesneni', nazev: 'Napojovací těsnicí páska',
+        mnozstvi: Math.ceil(podhled ? 2 * ((h.delka || 0) + (h.vyska || 0)) : 2 * (h.delka || 0) + 2 * (h.vyska || 0)), mj: 'bm',
         zaklad: 'pod obvodové profily' });
       return { radky: r };
     }
@@ -1942,7 +2021,7 @@ $('#kl-vysledek').addEventListener('click', async e => {
   const mat = e.target.closest('[data-material]');
   if (mat) {
     const r = kalkRadky[Number(mat.dataset.material)];
-    otevriVyber(stav.cenik.length ? 'cenik' : 'katalog', async (zdroj, rezim) => {
+    otevriVyber(r.material?.katalog_id || !stav.cenik.length ? 'katalog' : 'cenik', async (zdroj, rezim) => {
       pripojMaterial(r, zdroj, rezim);
       await nactiKatalogoveCeny([r.material?.katalog_id]);
       prepocitej();
