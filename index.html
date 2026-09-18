@@ -305,6 +305,7 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
           <button class="btn btn-metr btn-maly" id="d-z-katalogu">Z katalogu</button>
           <button class="btn btn-tichy btn-maly" id="d-volna">Vlastní řádek</button>
         </div>
+        <p class="napoveda chyba" id="d-varovani" style="padding:0 1rem"></p>
         <div class="souhrn-doklad">
           <div><small>Bez DPH</small><div class="cena" id="d-bez">0 Kč</div></div>
           <div><small>DPH</small><div class="cena" id="d-dph">0 Kč</div></div>
@@ -463,23 +464,6 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
   <div class="dlg-telo">
     <input id="vd-hledat" class="pole" type="search" placeholder="Hledat" style="margin-bottom:.8rem">
     <div class="seznam" id="vd-seznam"><div class="prazdno">Napiš, co hledáš.</div></div>
-  </div>
-</dialog>
-
-<dialog id="dlg-nove">
-  <div class="metr dlg-hlava">
-    <button type="button" class="dlg-zavrit" aria-label="Zavřít" data-zavrit>×</button>
-    <h2>Uložit do ceníku?</h2>
-  </div>
-  <div class="dlg-telo">
-    <p class="napoveda" style="margin-bottom:.6rem">Tyhle položky jsi napsal ručně. Uložením do ceníku je příště jen vybereš.</p>
-    <div id="nd-seznam"></div>
-    <div class="dlg-pata">
-      <span class="konec">
-        <button type="button" class="btn btn-tichy" data-zavrit>Teď ne</button>
-        <button type="button" class="btn btn-metr" id="nd-ulozit">Uložit do ceníku</button>
-      </span>
-    </div>
   </div>
 </dialog>
 
@@ -1079,6 +1063,9 @@ async function otevriDoklad(id) {
   $('#d-info').textContent = 'Ceny na dokladu jsou uzamčené. Pozdější změna ceníku ani noční import je nezmění.';
   vykresliPolozky();
   prepniTab('doklad');
+  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id));
+  await nactiPosledniCeny();
+  obnovInfo();
 }
 $('#d-zpet').addEventListener('click', () => { stav.doklad = null; prepniTab(stav.predchoziTab === 'doklad' ? 'doklady' : stav.predchoziTab); nactiDoklady(); });
 
@@ -1088,7 +1075,7 @@ function vykresliPolozky() {
   el.innerHTML = stav.polozky.map((p, i) => `
     <div class="dp" data-i="${i}">
       <span class="nazev-pole"><input class="pole" data-f="nazev" value="${esc(p.nazev)}" aria-label="Název">
-        ${p.katalog_id ? `<span class="p-meta" data-sklad="${esc(p.katalog_id)}"></span>` : ''}</span>
+        <span class="p-meta" data-info="${i}"></span></span>
       <input class="pole" data-f="mj" value="${esc(p.mj || '')}" aria-label="MJ">
       <input class="pole" data-f="mnozstvi" inputmode="decimal" value="${vPole(p.mnozstvi)}" aria-label="Množství">
       <input class="pole" data-f="sleva_pct" inputmode="decimal" value="${vPole(p.sleva_pct)}" aria-label="Sleva">
@@ -1097,7 +1084,7 @@ function vykresliPolozky() {
       <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek">×</button>
     </div>`).join('');
   souhrnDoklad();
-  doplnDostupnost();
+  obnovInfo();
 }
 
 $('#d-polozky').addEventListener('input', e => {
@@ -1105,7 +1092,7 @@ $('#d-polozky').addEventListener('input', e => {
   const i = Number(e.target.closest('.dp').dataset.i);
   const v = e.target.value;
   stav.polozky[i][pole] = ['nazev', 'mj'].includes(pole) ? v : (cislo(v) ?? 0);
-  souhrnDoklad();
+  souhrnDoklad(); obnovInfo();
 });
 $('#d-polozky').addEventListener('click', e => {
   const b = e.target.closest('[data-smazat]'); if (!b) return;
@@ -1122,20 +1109,70 @@ function souhrnDoklad() {
   return { bez: zaokr(bez), dph: zaokr(dph) };
 }
 
-// dostupnost materiálu z katalogu přímo u řádků dokladu
-async function doplnDostupnost() {
-  const idcka = [...new Set(stav.polozky.map(p => p.katalog_id).filter(Boolean))];
-  if (!idcka.length) return;
-  const { data } = await sb.from('katalog').select('id, kod, zasoby').in('id', idcka);
-  (data || []).forEach(k => {
+// sklad a hlídání cen přímo u řádků dokladu
+function klicPolozky(p) {
+  return p.cenik_id ? 'c:' + p.cenik_id
+    : p.katalog_id ? 'k:' + p.katalog_id
+    : 'n:' + String(p.nazev || '').trim().toLowerCase();
+}
+
+/** Text pod řádkem: sklad, a hlavně upozornění na podezřele nízkou cenu. */
+function infoRadku(p) {
+  const casti = [], varovani = [];
+  const k = p.katalog_id && stav.katalogCeny[p.katalog_id];
+  const mn = Number(p.mnozstvi) || 0;
+  const cena = Number(p.cena_bez_dph) || 0;
+
+  if (k) {
     const m = Number(k.zasoby?.malesice) || 0, l = Number(k.zasoby?.liben) || 0;
-    $$(`[data-sklad="${k.id}"]`).forEach(el => {
-      const p = stav.polozky[Number(el.closest('.dp').dataset.i)];
-      const dost = m + l >= (Number(p?.mnozstvi) || 0);
-      el.textContent = `kód ${k.kod}, skladem ${ks(m)} + ${ks(l)}${dost ? '' : ' – nestačí'}`;
-      el.style.color = dost ? '' : 'var(--pozor)';
-    });
+    casti.push(`kód ${k.kod}, skladem ${ks(m)} + ${ks(l)}`);
+    if (m + l < mn) varovani.push('skladem je méně, než objednáváš');
+  }
+
+  const c = stav.cenik.find(x => x.id === p.cenik_id)
+    || (p.katalog_id ? stav.cenik.find(x => x.katalog_id === p.katalog_id) : null);
+  const nakup = nakupDnes(p.katalog_id) ?? c?.nakupni_bez_dph ?? null;
+
+  if (cena > 0) {
+    if (nakup != null && cena <= nakup) varovani.push('pod nákupní cenou ' + kc(nakup));
+    else if (c?.prodejni_bez_dph != null && cena < c.prodejni_bez_dph * 0.995)
+      varovani.push('nižší než ceník ' + kc(c.prodejni_bez_dph));
+    const posl = stav.posledniCeny[klicPolozky(p)];
+    if (posl && cena < posl.cena * 0.995)
+      varovani.push(`posledně jsi účtoval ${kc(posl.cena)} (${posl.cislo})`);
+  }
+  return { text: [...casti, ...varovani].join(' · '), varovani: varovani.length > 0 };
+}
+
+function obnovInfo() {
+  let pocet = 0;
+  stav.polozky.forEach((p, i) => {
+    const el = $(`[data-info="${i}"]`);
+    if (!el) return;
+    const r = infoRadku(p);
+    el.textContent = r.text;
+    el.classList.toggle('varovani', r.varovani);
+    if (r.varovani) pocet++;
   });
+  $('#d-varovani').textContent = pocet
+    ? `${pocet} ${pocet === 1 ? 'položka je' : pocet < 5 ? 'položky jsou' : 'položek je'} pod obvyklou cenou nebo nejsou skladem. Zkontroluj zvýrazněné řádky.`
+    : '';
+}
+
+/** Naposledy účtované ceny, aby aplikace poznala, že jdeš pod svou cenu. */
+async function nactiPosledniCeny() {
+  stav.posledniCeny = {};
+  const { data, error } = await sb.from('polozky_dokladu')
+    .select('nazev, cena_bez_dph, cenik_id, katalog_id, doklad:doklady!inner(id, cislo, firma_id, datum_vystaveni)')
+    .eq('doklad.firma_id', stav.firma.id)
+    .limit(500);
+  if (error || !data) return;
+  data
+    .filter(x => x.doklad && x.doklad.id !== stav.doklad?.id && Number(x.cena_bez_dph) > 0)
+    .sort((a, b) => String(a.doklad.datum_vystaveni).localeCompare(String(b.doklad.datum_vystaveni)))
+    .forEach(x => {
+      stav.posledniCeny[klicPolozky(x)] = { cena: Number(x.cena_bez_dph), cislo: x.doklad.cislo };
+    });
 }
 
 /* ---- přidávání položek ---- */
@@ -1214,7 +1251,9 @@ $('#vd-seznam').addEventListener('click', e => {
       sleva_pct: 0, sazba_dph: stav.firma.platce_dph ? sazba : 0, poznamka: 'Kód ' + k.kod
     });
   }
-  dlgVyber.close(); vykresliPolozky(); toast('Položka přidána.');
+  dlgVyber.close();
+  nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id)).then(obnovInfo);
+  vykresliPolozky(); toast('Položka přidána.');
 });
 
 // výsledky katalogu ve výběru si držíme zvlášť
@@ -1227,7 +1266,43 @@ vykresliVyber = function (polozky) {
 $$('[data-zavrit]').forEach(b => b.addEventListener('click', e => e.target.closest('dialog').close()));
 
 /* ---- uložení dokladu ---- */
-$('#d-ulozit').addEventListener('click', ulozDoklad);
+$('#d-ulozit').addEventListener('click', async () => {
+  if (!(await ulozDoklad())) return;
+  const n = await doCeniku();
+  if (n) toast(`Doklad uložen, do ceníku přibyl${n === 1 ? 'a 1 položka' : 'y ' + n + ' položky'}.`);
+});
+
+/* ---- ručně psané položky se ukládají i do ceníku ---- */
+function rucniNoveKPolozkam() {
+  return stav.polozky.filter(p => !p.cenik_id && !p.katalog_id && (p.nazev || '').trim()
+    && Number(p.cena_bez_dph) > 0
+    && !stav.cenik.some(c => (c.nazev || '').trim().toLowerCase() === p.nazev.trim().toLowerCase()));
+}
+
+/** Uloží ruční řádky dokladu do ceníku a naváže je na doklad. Vrací počet. */
+async function doCeniku() {
+  const nove = rucniNoveKPolozkam();
+  if (!nove.length) return 0;
+  const { data, error } = await sb.from('cenik').insert(nove.map(p => ({
+    firma_id: stav.firma.id,
+    typ: p.typ || 'ostatni',
+    nazev: p.nazev.trim(),
+    mj: p.mj || null,
+    prodejni_bez_dph: zaokr(Number(p.cena_bez_dph)),
+    sazba_dph: Number(p.sazba_dph) || 21,
+    prirazka_pct: 0,
+    poznamka: 'Z dokladu ' + stav.doklad.cislo
+  }))).select();
+  if (error) { toast('Do ceníku se položky nepodařilo uložit: ' + prelozChybu(error), true); return 0; }
+  (data || []).forEach(c => {
+    const p = stav.polozky.find(x => !x.cenik_id && (x.nazev || '').trim() === c.nazev);
+    if (p) p.cenik_id = c.id;
+  });
+  await ulozDoklad(true);
+  await nactiCenik();
+  vykresliPolozky();
+  return (data || []).length;
+}
 
 async function ulozDoklad(tise = false) {
   if (!stav.doklad) return;
@@ -1278,6 +1353,7 @@ $('#d-smazat').addEventListener('click', async () => {
 
 $('#d-na-fakturu').addEventListener('click', async () => {
   if (!(await ulozDoklad(true))) return;
+  await doCeniku();
   await novyDoklad('faktura', {
     kontakt_id: stav.doklad.kontakt_id, odberatel: stav.doklad.odberatel,
     uvod: stav.doklad.uvod, poznamka: stav.doklad.poznamka, polozky: stav.polozky
@@ -1374,10 +1450,14 @@ function tiskDoklad() {
     ${d.poznamka ? `<p>${esc(d.poznamka)}</p>` : ''}
     <div class="tisk-pata">${faktura
       ? 'Fakturu uhraďte na uvedený účet do data splatnosti.'
-      : 'Nabídka platí 30 dní od data vystavení. Ceny materiálu vycházejí z aktuálního ceníku dodavatele a mohou se změnit.'}</div>`;
+      : 'Ceny materiálu platí ke dni vystavení nabídky a řídí se aktuálním ceníkem dodavatele.'}</div>`;
   window.print();
 }
-$('#d-tisk').addEventListener('click', async () => { if (await ulozDoklad(true)) tiskDoklad(); });
+$('#d-tisk').addEventListener('click', async () => {
+  if (!(await ulozDoklad(true))) return;
+  await doCeniku();
+  tiskDoklad();
+});
 
 $('#d-objednavka').addEventListener('click', async () => {
   if (!(await ulozDoklad(true))) return;
