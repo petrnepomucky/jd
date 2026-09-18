@@ -272,9 +272,11 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
     <section id="v-doklady" class="skryt">
       <div class="nastroje">
         <input id="dk-filtr" class="pole" type="search" placeholder="Hledat podle čísla nebo odběratele" aria-label="Hledat doklad">
-        <select id="dk-typ" class="pole" style="flex:0 0 auto;min-width:130px" aria-label="Typ dokladu">
-          <option value="">Vše</option><option value="nabidka">Nabídky</option><option value="faktura">Faktury</option>
-        </select>
+        <span class="chipy" id="dk-typy" role="group" aria-label="Typ dokladu">
+          <button class="chip" type="button" data-typ="" aria-pressed="true">Vše</button>
+          <button class="chip" type="button" data-typ="nabidka" aria-pressed="false">Nabídky</button>
+          <button class="chip" type="button" data-typ="faktura" aria-pressed="false">Faktury</button>
+        </span>
         <button class="btn btn-metr" id="dk-nova-nabidka">Nová nabídka</button>
         <button class="btn" id="dk-nova-faktura">Nová faktura</button>
       </div>
@@ -1065,15 +1067,24 @@ async function nactiDoklady() {
   if (error) { $('#dk-seznam').innerHTML = `<div class="prazdno chyba">${esc(prelozChybu(error))}</div>`; return; }
   stav.doklady = data || []; vykresliDoklady();
 }
+let dkTyp = '';
 $('#dk-filtr').addEventListener('input', vykresliDoklady);
-$('#dk-typ').addEventListener('change', vykresliDoklady);
+$('#dk-typy').addEventListener('click', e => {
+  const b = e.target.closest('[data-typ]'); if (!b) return;
+  dkTyp = b.dataset.typ;
+  $$('#dk-typy .chip').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.typ === dkTyp)));
+  vykresliDoklady();
+});
 
 function vykresliDoklady() {
-  const el = $('#dk-seznam'), f = bezDia($('#dk-filtr').value.trim()), t = $('#dk-typ').value;
+  const el = $('#dk-seznam'), f = bezDia($('#dk-filtr').value.trim()), t = dkTyp;
   if (!stav.doklady.length) { el.innerHTML = '<div class="prazdno">Zatím žádný doklad. Začni novou nabídkou.</div>'; return; }
   const radky = stav.doklady.filter(d => (!t || d.typ === t) &&
     (!f || bezDia(d.cislo).includes(f) || bezDia(d.odberatel?.nazev).includes(f)));
-  if (!radky.length) { el.innerHTML = '<div class="prazdno">Filtru nic neodpovídá.</div>'; return; }
+  if (!radky.length) {
+    el.innerHTML = `<div class="prazdno">${t === 'nabidka' ? 'Zatím žádná nabídka.' : t === 'faktura' ? 'Zatím žádná faktura.' : 'Filtru nic neodpovídá.'}</div>`;
+    return;
+  }
   el.innerHTML = radky.map(d => `<button class="rada rada-doklad" data-id="${esc(d.id)}">
       <span class="cislo-dokladu">${esc(d.cislo)}</span>
       <span><span class="p-nazev">${esc(d.odberatel?.nazev || 'Bez odběratele')}</span>
@@ -1163,7 +1174,7 @@ function vykresliPolozky() {
       <input class="pole" data-f="sazba_dph" inputmode="decimal" value="${vPole(p.sazba_dph)}" aria-label="DPH">
       <input class="pole vpravo" data-f="cena_bez_dph" inputmode="decimal" value="${vPole(p.cena_bez_dph)}" aria-label="Cena bez DPH">
       <span style="display:flex;gap:.25rem">
-        <button class="btn btn-tichy btn-maly" data-vymenit="${i}" aria-label="Vybrat materiál z ceníku nebo katalogu" title="Vybrat materiál z ceníku nebo katalogu">⇄</button>
+        <button class="btn btn-metr btn-maly" data-vymenit="${i}" aria-label="Vybrat položku z ceníku nebo katalogu" title="Vybrat položku z ceníku nebo katalogu">⇄</button>
         <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek">×</button>
       </span>
     </div>`).join('');
