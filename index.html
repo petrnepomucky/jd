@@ -138,6 +138,11 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
 .dlg-pata{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.5rem}
 .dlg-pata .konec{display:flex;gap:.6rem;margin-left:auto}
 
+.kalk-radek{display:grid;grid-template-columns:1fr 110px 70px auto;gap:.6rem;align-items:center;padding:.6rem 1rem;border-top:1px solid var(--linka)}
+.kalk-radek:first-child{border-top:0}
+.kalk-mn{font-family:'Barlow Condensed';font-size:1.25rem;font-weight:700;text-align:right}
+.kalk-vysledek{background:var(--karta);border:1px solid var(--linka);border-radius:var(--r);overflow:hidden;margin-bottom:1rem}
+@media (max-width:640px){.kalk-radek{grid-template-columns:1fr auto;gap:.3rem .6rem}.kalk-radek .kalk-mj{display:none}}
 .p-meta.varovani{color:var(--pozor);font-weight:600}
 .p-meta.pozor{color:#8A6A00;font-weight:600}
 #toast{position:fixed;left:50%;bottom:5.5rem;transform:translateX(-50%);background:var(--inkoust);color:#fff;padding:.7rem 1.1rem;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:60;max-width:calc(100% - 2rem)}
@@ -242,6 +247,7 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
       <button class="tab" role="tab" data-tab="doklady" aria-selected="true">Doklady</button>
       <button class="tab" role="tab" data-tab="katalog" aria-selected="false">Katalog</button>
       <button class="tab" role="tab" data-tab="cenik" aria-selected="false">Ceník</button>
+      <button class="tab" role="tab" data-tab="kalkulacky" aria-selected="false">Kalkulačky</button>
       <button class="tab" role="tab" data-tab="kontakty" aria-selected="false">Kontakty</button>
       <button class="tab" role="tab" data-tab="firma" aria-selected="false">Firma</button>
     </div>
@@ -341,6 +347,30 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
         <button class="btn btn-metr" id="c-pridat">Přidat položku</button>
       </div>
       <div class="seznam" id="c-seznam"><div class="prazdno">Načítám ceník…</div></div>
+    </section>
+
+    <!-- KALKULAČKY -->
+    <section id="v-kalkulacky" class="skryt">
+      <div class="karta">
+        <h2>Spotřeba materiálu</h2>
+        <div class="radek">
+          <label for="kl-druh">Co počítáme</label>
+          <select id="kl-druh" class="pole">
+            <option value="zdivo">Zdivo z tvárnic nebo cihel</option>
+            <option value="sdk">Sádrokartonová příčka</option>
+            <option value="plocha">Dlažba, obklad nebo deska</option>
+            <option value="objem">Beton, potěr nebo zásyp</option>
+          </select>
+        </div>
+        <div id="kl-vstupy"></div>
+        <p class="napoveda" id="kl-poznamka"></p>
+      </div>
+
+      <div class="kalk-vysledek" id="kl-vysledek"><div class="prazdno">Vyplň rozměry a spočítám množství.</div></div>
+      <div class="lista">
+        <button class="btn btn-metr" id="kl-do-nabidky">Vložit do nabídky</button>
+        <button class="btn btn-tichy" id="kl-vycistit">Vyčistit</button>
+      </div>
     </section>
 
     <!-- KONTAKTY -->
@@ -609,7 +639,7 @@ async function start(user) {
 /* ================= TABY ================= */
 function prepniTab(tab) {
   $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-  ['doklady', 'doklad', 'katalog', 'cenik', 'kontakty', 'firma'].forEach(t => $('#v-' + t).classList.toggle('skryt', t !== tab));
+  ['doklady', 'doklad', 'katalog', 'cenik', 'kalkulacky', 'kontakty', 'firma'].forEach(t => $('#v-' + t).classList.toggle('skryt', t !== tab));
   if (tab !== 'doklad') stav.predchoziTab = tab;
   if (tab === 'katalog') $('#k-hledat').focus({ preventScroll: true });
   window.scrollTo(0, 0);
@@ -1178,6 +1208,7 @@ async function nactiPosledniCeny() {
 /* ---- přidávání položek ---- */
 const dlgVyber = $('#dlg-vyber');
 let vyberRezim = 'cenik';
+let vyberCallback = null;   // když je vyplněný, vybraná položka se předá sem místo do dokladu
 
 $('#d-z-ceniku').addEventListener('click', () => otevriVyber('cenik'));
 $('#d-z-katalogu').addEventListener('click', () => otevriVyber('katalog'));
@@ -1187,8 +1218,9 @@ $('#d-volna').addEventListener('click', () => {
   const posl = $('#d-polozky').lastElementChild?.querySelector('input'); posl?.focus();
 });
 
-function otevriVyber(rezim) {
+function otevriVyber(rezim, callback = null) {
   vyberRezim = rezim;
+  vyberCallback = callback;
   $('#vd-titulek').textContent = rezim === 'cenik' ? 'Vybrat z ceníku' : 'Vybrat z katalogu';
   $('#vd-hledat').value = '';
   dlgVyber.showModal();
@@ -1232,6 +1264,11 @@ function vykresliVyber(polozky) {
 $('#vd-seznam').addEventListener('click', e => {
   const b = e.target.closest('[data-vyber]'); if (!b) return;
   const id = b.dataset.vyber;
+  if (vyberCallback) {
+    const zdroj = vyberRezim === 'cenik' ? stav.cenik.find(x => x.id === id) : stav.katalogVyber?.find(x => x.id === id);
+    if (zdroj) { const cb = vyberCallback; vyberCallback = null; dlgVyber.close(); cb(zdroj, vyberRezim); }
+    return;
+  }
   if (vyberRezim === 'cenik') {
     const c = stav.cenik.find(x => x.id === id); if (!c) return;
     stav.polozky.push({
@@ -1360,6 +1397,237 @@ $('#d-na-fakturu').addEventListener('click', async () => {
   });
   toast('Faktura vystavená z nabídky.');
 });
+
+/* ================= KALKULAČKY SPOTŘEBY ================= */
+/* Výsledky jsou orientační. Vždy je vidět, z čeho vyšly, a dají se přepsat. */
+
+const KALK = {
+  zdivo: {
+    poznamka: 'Spotřebu lepidla i maltu ber jako orientační. Rozměr tvárnice se předvyplní, když vybereš materiál z katalogu.',
+    pole: [
+      { id: 'delka', popis: 'Délka stěny (m)', v: '' },
+      { id: 'vyska', popis: 'Výška stěny (m)', v: '' },
+      { id: 'otvory', popis: 'Odečíst otvory (m²)', v: '0' },
+      { id: 'td', popis: 'Tvárnice – délka (cm)', v: '60' },
+      { id: 'tv', popis: 'Tvárnice – výška (cm)', v: '25' },
+      { id: 'tl', popis: 'Tloušťka zdiva (cm)', v: '' },
+      { id: 'prorez', popis: 'Prořez (%)', v: '5' },
+      { id: 'lepidlo', popis: 'Lepidlo (kg/m²)', v: '1,5' }
+    ],
+    spocitej(h) {
+      const plocha = Math.max(0, (h.delka || 0) * (h.vyska || 0) - (h.otvory || 0));
+      if (!plocha || !h.td || !h.tv) return null;
+      const naM2 = 1 / ((h.td / 100) * (h.tv / 100));
+      const ks = Math.ceil(plocha * naM2 * (1 + (h.prorez || 0) / 100));
+      const r = [
+        { klic: 'tvarnice', nazev: 'Tvárnice', mnozstvi: ks, mj: 'ks',
+          zaklad: `${ks3(plocha)} m² zdiva, ${ks3(naM2)} ks/m², prořez ${ks3(h.prorez || 0)} %` }
+      ];
+      if (h.lepidlo) r.push({ klic: 'lepidlo', nazev: 'Lepidlo nebo malta', mnozstvi: zaokr(plocha * h.lepidlo), mj: 'kg',
+        zaklad: `${ks3(h.lepidlo)} kg/m² × ${ks3(plocha)} m²` });
+      return { plocha, radky: r };
+    }
+  },
+
+  sdk: {
+    poznamka: 'Počítá se s roztečí profilů 625 mm. Desky vycházejí z rozměru zadaného níže.',
+    pole: [
+      { id: 'delka', popis: 'Délka příčky (m)', v: '' },
+      { id: 'vyska', popis: 'Výška příčky (m)', v: '2,6' },
+      { id: 'otvory', popis: 'Odečíst otvory (m²)', v: '0' },
+      { id: 'vrstvy', popis: 'Vrstev opláštění celkem', v: '2' },
+      { id: 'dd', popis: 'Deska – šířka (m)', v: '1,25' },
+      { id: 'dv', popis: 'Deska – délka (m)', v: '2,6' },
+      { id: 'prorez', popis: 'Prořez (%)', v: '10' },
+      { id: 'izolace', popis: 'Izolace do příčky (1 = ano)', v: '1' }
+    ],
+    spocitej(h) {
+      const plocha = Math.max(0, (h.delka || 0) * (h.vyska || 0) - (h.otvory || 0));
+      if (!plocha || !h.dd || !h.dv) return null;
+      const opl = plocha * (h.vrstvy || 2) * (1 + (h.prorez || 0) / 100);
+      const deska = h.dd * h.dv;
+      const cw = Math.ceil((h.delka || 0) / 0.625) + 1;
+      const r = [
+        { klic: 'deska', nazev: 'Sádrokartonová deska', mnozstvi: Math.ceil(opl / deska), mj: 'ks',
+          zaklad: `${ks3(opl)} m² opláštění, deska ${ks3(deska)} m²` },
+        { klic: 'cw', nazev: 'Profil CW (svislý)', mnozstvi: cw, mj: 'ks',
+          zaklad: `rozteč 625 mm na ${ks3(h.delka || 0)} m` },
+        { klic: 'uw', nazev: 'Profil UW (vodorovný)', mnozstvi: zaokr((h.delka || 0) * 2), mj: 'bm',
+          zaklad: 'podlaha + strop' },
+        { klic: 'srouby', nazev: 'Šrouby do sádrokartonu', mnozstvi: Math.ceil(opl * 25), mj: 'ks',
+          zaklad: '25 ks/m² opláštění' },
+        { klic: 'tmel', nazev: 'Spárovací tmel', mnozstvi: zaokr(opl * 0.4), mj: 'kg', zaklad: '0,4 kg/m²' },
+        { klic: 'paska', nazev: 'Výztužná páska', mnozstvi: Math.ceil(opl * 1.2), mj: 'bm', zaklad: '1,2 bm/m²' }
+      ];
+      if (h.izolace) r.push({ klic: 'izolace', nazev: 'Izolace do příčky', mnozstvi: zaokr(plocha), mj: 'm²', zaklad: 'plocha příčky' });
+      return { plocha, radky: r };
+    }
+  },
+
+  plocha: {
+    poznamka: 'Použij na dlažbu, obklad i deskový materiál. Když rozměr kusu nevyplníš, spočítá se jen plocha.',
+    pole: [
+      { id: 'delka', popis: 'Délka plochy (m)', v: '' },
+      { id: 'sirka', popis: 'Šířka plochy (m)', v: '' },
+      { id: 'otvory', popis: 'Odečíst (m²)', v: '0' },
+      { id: 'kd', popis: 'Kus – délka (cm)', v: '' },
+      { id: 'ksi', popis: 'Kus – šířka (cm)', v: '' },
+      { id: 'prorez', popis: 'Prořez (%)', v: '10' },
+      { id: 'lepidlo', popis: 'Lepidlo (kg/m²)', v: '4' },
+      { id: 'spara', popis: 'Spárovací hmota (kg/m²)', v: '0,5' }
+    ],
+    spocitej(h) {
+      const plocha = Math.max(0, (h.delka || 0) * (h.sirka || 0) - (h.otvory || 0));
+      if (!plocha) return null;
+      const sProrezem = plocha * (1 + (h.prorez || 0) / 100);
+      const r = [];
+      if (h.kd && h.ksi) {
+        const kus = (h.kd / 100) * (h.ksi / 100);
+        r.push({ klic: 'material', nazev: 'Dlažba nebo obklad', mnozstvi: Math.ceil(sProrezem / kus), mj: 'ks',
+          zaklad: `${ks3(sProrezem)} m² s prořezem, kus ${ks3(kus)} m²` });
+      } else {
+        r.push({ klic: 'material', nazev: 'Dlažba nebo obklad', mnozstvi: zaokr(sProrezem), mj: 'm²',
+          zaklad: `${ks3(plocha)} m² + prořez ${ks3(h.prorez || 0)} %` });
+      }
+      if (h.lepidlo) r.push({ klic: 'lepidlo', nazev: 'Lepidlo', mnozstvi: zaokr(plocha * h.lepidlo), mj: 'kg', zaklad: `${ks3(h.lepidlo)} kg/m²` });
+      if (h.spara) r.push({ klic: 'spara', nazev: 'Spárovací hmota', mnozstvi: zaokr(plocha * h.spara), mj: 'kg', zaklad: `${ks3(h.spara)} kg/m²` });
+      return { plocha, radky: r };
+    }
+  },
+
+  objem: {
+    poznamka: 'Pytle se počítají z vydatnosti, kterou najdeš na obalu. Beton v m³ nech vydatnost prázdnou.',
+    pole: [
+      { id: 'delka', popis: 'Délka (m)', v: '' },
+      { id: 'sirka', popis: 'Šířka (m)', v: '' },
+      { id: 'tloustka', popis: 'Tloušťka (cm)', v: '5' },
+      { id: 'rezerva', popis: 'Rezerva (%)', v: '5' },
+      { id: 'vydatnost', popis: 'Vydatnost pytle (l)', v: '' }
+    ],
+    spocitej(h) {
+      const objem = (h.delka || 0) * (h.sirka || 0) * ((h.tloustka || 0) / 100) * (1 + (h.rezerva || 0) / 100);
+      if (!objem) return null;
+      const r = [{ klic: 'smes', nazev: 'Směs', mnozstvi: zaokr(objem), mj: 'm³',
+        zaklad: `${ks3((h.delka || 0) * (h.sirka || 0))} m² × ${ks3(h.tloustka || 0)} cm, rezerva ${ks3(h.rezerva || 0)} %` }];
+      if (h.vydatnost) r.push({ klic: 'pytle', nazev: 'Pytle směsi', mnozstvi: Math.ceil(objem * 1000 / h.vydatnost), mj: 'ks',
+        zaklad: `${ks3(objem * 1000)} l / ${ks3(h.vydatnost)} l na pytel` });
+      return { objem, radky: r };
+    }
+  }
+};
+
+const ks3 = n => Number(n).toLocaleString('cs-CZ', { maximumFractionDigits: 3 });
+let kalkRadky = [];
+
+function vykresliVstupy() {
+  const k = KALK[$('#kl-druh').value];
+  $('#kl-vstupy').innerHTML = '<div class="mrizka">' + k.pole.map(f =>
+    `<div class="radek"><label for="kl-${f.id}">${esc(f.popis)}</label>
+      <input id="kl-${f.id}" class="pole kl-vstup" inputmode="decimal" value="${esc(f.v)}"></div>`).join('') + '</div>';
+  $('#kl-poznamka').textContent = k.poznamka;
+  if ($('#kl-druh').value === 'zdivo' || $('#kl-druh').value === 'plocha') {
+    $('#kl-vstupy').insertAdjacentHTML('beforeend',
+      `<button class="btn btn-tichy btn-maly" type="button" id="kl-material">Rozměry z katalogu</button>`);
+    $('#kl-material').addEventListener('click', () => otevriVyber('katalog', prevezmiRozmer));
+  }
+  prepocitej();
+}
+
+/** Z vybraného materiálu vytáhne rozměry a rovnou ho nabídne jako hlavní položku. */
+function prevezmiRozmer(k) {
+  const c = String(k.rozmer || '').split(/[xX×*]/).map(x => cislo(x)).filter(n => n != null && n > 0);
+  const druh = $('#kl-druh').value;
+  if (c.length >= 2) {
+    const setr = c.slice().sort((a, b) => b - a);
+    if (druh === 'zdivo') {
+      $('#kl-td').value = vPole(setr[0]); $('#kl-tv').value = vPole(setr[1]);
+      if (c.length >= 3) $('#kl-tl').value = vPole(setr[2]);
+    } else {
+      $('#kl-kd').value = vPole(setr[0]); $('#kl-ksi').value = vPole(setr[1]);
+    }
+    toast('Rozměr převzat: ' + k.rozmer);
+  } else {
+    toast('Materiál nemá ve feedu vyplněný rozměr, doplň ho ručně.', true);
+  }
+  prepocitej();
+  const hlavni = kalkRadky[0];
+  if (hlavni) { pripojMaterial(hlavni, k, 'katalog'); vykresliVysledek(); }
+}
+
+function hodnoty() {
+  const h = {};
+  $$('.kl-vstup').forEach(i => { h[i.id.replace('kl-', '')] = cislo(i.value) ?? 0; });
+  return h;
+}
+
+function prepocitej() {
+  const k = KALK[$('#kl-druh').value];
+  const v = k.spocitej(hodnoty());
+  const stare = Object.fromEntries(kalkRadky.filter(r => r.material).map(r => [r.klic, r.material]));
+  kalkRadky = v ? v.radky.map(r => ({ ...r, material: stare[r.klic] || null })) : [];
+  vykresliVysledek();
+}
+
+function vykresliVysledek() {
+  const el = $('#kl-vysledek');
+  if (!kalkRadky.length) { el.innerHTML = '<div class="prazdno">Vyplň rozměry a spočítám množství.</div>'; return; }
+  el.innerHTML = kalkRadky.map((r, i) => `
+    <div class="kalk-radek">
+      <div><span class="p-nazev">${esc(r.material ? r.material.nazev : r.nazev)}</span>
+        <span class="p-meta" style="display:block">${esc(r.zaklad)}${r.material ? ', cena ' + kc(r.material.cena) : ', bez materiálu'}</span></div>
+      <div class="kalk-mn">${ks3(r.mnozstvi)}</div>
+      <div class="kalk-mj p-meta">${esc(r.material?.mj || r.mj)}</div>
+      <button class="btn btn-tichy btn-maly" data-material="${i}">${r.material ? 'Změnit' : 'Materiál'}</button>
+    </div>`).join('');
+}
+
+$('#kl-vysledek').addEventListener('click', e => {
+  const b = e.target.closest('[data-material]'); if (!b) return;
+  const r = kalkRadky[Number(b.dataset.material)];
+  otevriVyber(stav.cenik.length ? 'cenik' : 'katalog', (zdroj, rezim) => { pripojMaterial(r, zdroj, rezim); vykresliVysledek(); });
+});
+
+function pripojMaterial(radek, zdroj, rezim) {
+  if (rezim === 'cenik') {
+    radek.material = { cenik_id: zdroj.id, katalog_id: zdroj.katalog_id || null, nazev: zdroj.nazev,
+      mj: zdroj.mj || radek.mj, cena: zdroj.prodejni_bez_dph ?? 0, sazba_dph: Number(zdroj.sazba_dph ?? 21), typ: zdroj.typ || 'material' };
+  } else {
+    const sazba = Number(zdroj.sazba_dph ?? 21);
+    const vCeniku = stav.cenik.find(c => c.katalog_id === zdroj.id);
+    radek.material = { cenik_id: vCeniku?.id || null, katalog_id: zdroj.id, nazev: zdroj.nazev,
+      mj: (zdroj.mj || radek.mj).toLowerCase(),
+      cena: vCeniku?.prodejni_bez_dph ?? (zdroj.cena_s_dph != null ? zaokr(zdroj.cena_s_dph / (1 + sazba / 100)) : 0),
+      sazba_dph: sazba, typ: 'material', kod: zdroj.kod };
+  }
+}
+
+$('#kl-druh').addEventListener('change', () => { kalkRadky = []; vykresliVstupy(); });
+$('#kl-vstupy').addEventListener('input', prepocitej);
+$('#kl-vycistit').addEventListener('click', () => { kalkRadky = []; vykresliVstupy(); });
+
+$('#kl-do-nabidky').addEventListener('click', async () => {
+  if (!kalkRadky.length) return toast('Není co vložit, nejdřív vyplň rozměry.', true);
+  if (!stav.doklad) {
+    await novyDoklad('nabidka');
+    if (!stav.doklad) return;
+  }
+  kalkRadky.forEach(r => {
+    const m = r.material;
+    stav.polozky.push({
+      cenik_id: m?.cenik_id || null, katalog_id: m?.katalog_id || null,
+      typ: m?.typ || 'material', nazev: m?.nazev || r.nazev, mj: m?.mj || r.mj,
+      mnozstvi: r.mnozstvi, cena_bez_dph: m?.cena ?? 0, sleva_pct: 0,
+      sazba_dph: stav.firma.platce_dph ? (m?.sazba_dph ?? 21) : 0,
+      poznamka: r.zaklad
+    });
+  });
+  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id));
+  vykresliPolozky();
+  prepniTab('doklad');
+  toast(`Do dokladu ${stav.doklad.cislo} vloženo ${kalkRadky.length} položek. Zkontroluj ceny a ulož.`);
+});
+
+vykresliVstupy();
 
 /* ================= TISK ================= */
 function firmaBlok() {
