@@ -120,7 +120,8 @@ main{max-width:1080px;margin:0 auto;padding:1.2rem 1rem 6rem}
 .lista{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
 .lista h1{font-size:1.7rem;flex:1;min-width:140px}
 
-.dp{display:grid;grid-template-columns:1fr 90px 110px 70px 70px 110px 34px;gap:.5rem;padding:.55rem 1rem;border-top:1px solid var(--linka);align-items:center}
+.dp{display:grid;grid-template-columns:minmax(150px,1fr) 72px 92px 62px 62px 104px 82px;gap:.45rem;padding:.55rem .8rem;border-top:1px solid var(--linka);align-items:center}
+.dp .btn-maly{padding:.35rem .5rem}
 .dp-hlava{background:#EEF0EC;font-size:.8rem;font-weight:600;color:var(--ocel);border-top:0}
 .dp .pole{padding:.4rem .5rem}
 .dp-soucet{font-weight:600;text-align:right;white-space:nowrap}
@@ -183,7 +184,7 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
 .tisk-pata{margin-top:26px;font-size:11px;color:#444}
 
 @media (max-width:760px){
-  .dp{grid-template-columns:1fr 1fr 34px;gap:.4rem .5rem}
+  .dp{grid-template-columns:1fr 1fr 82px;gap:.4rem .5rem}
   .dp-hlava{display:none}
   .dp>label{display:none}
   .dp .nazev-pole{grid-column:1/3}
@@ -552,6 +553,8 @@ const kc = n => (n == null || !Number.isFinite(Number(n))) ? '–'
 const vPole = n => (n == null || !Number.isFinite(Number(n))) ? '' : String(zaokr(Number(n))).replace('.', ',');
 const ks = n => Number(n).toLocaleString('cs-CZ', { maximumFractionDigits: 2 });
 const httpsUrl = u => /^https:\/\//i.test(u || '') ? u : '';
+/** Text bez diakritiky a malými písmeny – aby „sádrokarton“ našel „SADROKARTON“. */
+const bezDia = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const dnes = () => new Date().toISOString().slice(0, 10);
 const plusDni = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
 const datum = d => d ? new Date(d).toLocaleDateString('cs-CZ') : '';
@@ -719,15 +722,29 @@ async function nactiStavKatalogu() {
     : 'Katalog zatím nemá data.';
 }
 
+let sloupecHledani = 'nazev_hled';   // spadne na 'nazev', když sloupec v databázi ještě není
+
 async function hledejKatalog(dotazText, limit = 60) {
   const q = String(dotazText || '').replace(/[%,()*\\"]/g, ' ').replace(/\s+/g, ' ').trim();
   if (q.length < 2) return [];
-  let d = sb.from('katalog')
-    .select('id, kod, ean, nazev, mj, rozmer, pocet_na_palete, hmotnost_mj, cena_s_dph, sazba_dph, zasoby, url_produktu, url_obrazku')
-    .order('nazev').limit(limit);
-  if (/^\d{3,}$/.test(q)) d = d.or(`kod.eq.${q},ean.eq.${q},nazev.ilike.%${q}%`);
-  else q.split(' ').slice(0, 6).forEach(w => { d = d.ilike('nazev', `%${w}%`); });
-  const { data, error } = await d;
+
+  const dotaz = () => {
+    let d = sb.from('katalog')
+      .select('id, kod, ean, nazev, mj, rozmer, pocet_na_palete, hmotnost_mj, cena_s_dph, sazba_dph, zasoby, url_produktu, url_obrazku')
+      .order('nazev').limit(limit);
+    if (/^\d{3,}$/.test(q)) {
+      d = d.or(`kod.eq.${q},ean.eq.${q},${sloupecHledani}.ilike.%${bezDia(q)}%`);
+    } else {
+      bezDia(q).split(' ').slice(0, 6).forEach(w => { d = d.ilike(sloupecHledani, `%${w}%`); });
+    }
+    return d;
+  };
+
+  let { data, error } = await dotaz();
+  if (error && sloupecHledani === 'nazev_hled' && /nazev_hled/.test(String(error.message || ''))) {
+    sloupecHledani = 'nazev';               // databáze ještě nemá vyhledávací sloupec
+    ({ data, error } = await dotaz());
+  }
   if (error) { toast('Hledání selhalo: ' + prelozChybu(error), true); return []; }
   return data || [];
 }
@@ -842,7 +859,7 @@ function kontrolaCeniku(c) {
   const dnesni = nakupDnes(c.katalog_id);
   const prodej = c.prodejni_bez_dph;
   if (dnesni == null) return null;
-  if (prodej != null && prodej <= dnesni) return { druh: 'ztrata', text: 'prodej pod nákupem ' + kc(dnesni) };
+  if (prodej != null && zaokr(prodej) < zaokr(dnesni)) return { druh: 'ztrata', text: 'prodej pod nákupem ' + kc(dnesni) };
   const ulozeny = c.nakupni_bez_dph;
   if (ulozeny != null && ulozeny > 0) {
     const zmena = (dnesni / ulozeny - 1) * 100;
@@ -857,10 +874,10 @@ $('#c-filtr').addEventListener('input', vykresliCenik);
 $('#c-pridat').addEventListener('click', () => otevriCenik({ typ: 'material', sazba_dph: 21, prirazka_pct: 0 }));
 
 function vykresliCenik() {
-  const el = $('#c-seznam'), f = $('#c-filtr').value.trim().toLowerCase();
+  const el = $('#c-seznam'), f = bezDia($('#c-filtr').value.trim());
   if (!stav.cenik.length) { el.innerHTML = '<div class="prazdno">Ceník je prázdný. Najdi materiál v katalogu a dej „Do ceníku“, nebo přidej vlastní položku či práci.</div>'; return; }
   const jenKontrola = $('#c-kontrola').checked;
-  const radky = stav.cenik.filter(c => (!f || (c.nazev || '').toLowerCase().includes(f) || (c.poznamka || '').toLowerCase().includes(f))
+  const radky = stav.cenik.filter(c => (!f || bezDia(c.nazev).includes(f) || bezDia(c.poznamka).includes(f))
     && (!jenKontrola || ['drazsi', 'ztrata'].includes(kontrolaCeniku(c)?.druh)));
   if (!radky.length) { el.innerHTML = `<div class="prazdno">${jenKontrola ? 'Ceny jsou v pořádku, nic ke kontrole.' : 'Filtru nic neodpovídá.'}</div>`; return; }
   el.innerHTML = radky.map(c => {
@@ -947,8 +964,8 @@ $('#f-polozka').addEventListener('submit', async e => {
       && !confirm('Snižuješ prodejní cenu z ' + kc(puvodni.prodejni_bez_dph) + ' na ' + kc(z.prodejni_bez_dph) + '.\n\nOpravdu uložit?')) {
     return;
   }
-  if (z.nakupni_bez_dph != null && z.prodejni_bez_dph != null && z.prodejni_bez_dph <= z.nakupni_bez_dph
-      && !confirm('Prodejní cena není vyšší než nákupní. Na položce nic nevyděláš.\n\nOpravdu uložit?')) {
+  if (z.nakupni_bez_dph != null && z.prodejni_bez_dph != null && z.prodejni_bez_dph < z.nakupni_bez_dph
+      && !confirm('Prodejní cena je nižší než nákupní. Na položce proděláš.\n\nOpravdu uložit?')) {
     return;
   }
   $('#cd-ulozit').disabled = true;
@@ -984,9 +1001,9 @@ function adresaRadek(k) {
 }
 
 function vykresliKontakty() {
-  const el = $('#ko-seznam'), f = $('#ko-filtr').value.trim().toLowerCase();
+  const el = $('#ko-seznam'), f = bezDia($('#ko-filtr').value.trim());
   if (!stav.kontakty.length) { el.innerHTML = '<div class="prazdno">Zatím žádný odběratel. Přidej první kontakt.</div>'; return; }
-  const radky = stav.kontakty.filter(k => !f || [k.nazev, k.mesto, k.ico, k.email].some(x => (x || '').toLowerCase().includes(f)));
+  const radky = stav.kontakty.filter(k => !f || [k.nazev, k.mesto, k.ico, k.email].some(x => bezDia(x).includes(f)));
   if (!radky.length) { el.innerHTML = '<div class="prazdno">Filtru nic neodpovídá.</div>'; return; }
   el.innerHTML = radky.map(k => `<button class="rada rada-kontakt" data-id="${esc(k.id)}">
       <span><span class="p-nazev">${esc(k.nazev)}</span>
@@ -1052,10 +1069,10 @@ $('#dk-filtr').addEventListener('input', vykresliDoklady);
 $('#dk-typ').addEventListener('change', vykresliDoklady);
 
 function vykresliDoklady() {
-  const el = $('#dk-seznam'), f = $('#dk-filtr').value.trim().toLowerCase(), t = $('#dk-typ').value;
+  const el = $('#dk-seznam'), f = bezDia($('#dk-filtr').value.trim()), t = $('#dk-typ').value;
   if (!stav.doklady.length) { el.innerHTML = '<div class="prazdno">Zatím žádný doklad. Začni novou nabídkou.</div>'; return; }
   const radky = stav.doklady.filter(d => (!t || d.typ === t) &&
-    (!f || d.cislo.toLowerCase().includes(f) || (d.odberatel?.nazev || '').toLowerCase().includes(f)));
+    (!f || bezDia(d.cislo).includes(f) || bezDia(d.odberatel?.nazev).includes(f)));
   if (!radky.length) { el.innerHTML = '<div class="prazdno">Filtru nic neodpovídá.</div>'; return; }
   el.innerHTML = radky.map(d => `<button class="rada rada-doklad" data-id="${esc(d.id)}">
       <span class="cislo-dokladu">${esc(d.cislo)}</span>
@@ -1225,11 +1242,11 @@ function infoRadku(p) {
   const nakup = nakupDnes(p.katalog_id) ?? c?.nakupni_bez_dph ?? null;
 
   if (cena > 0) {
-    if (nakup != null && cena <= nakup) varovani.push('pod nákupní cenou ' + kc(nakup));
-    else if (c?.prodejni_bez_dph != null && cena < c.prodejni_bez_dph * 0.995)
+    if (nakup != null && cena < zaokr(nakup)) varovani.push('pod nákupní cenou ' + kc(nakup));
+    else if (c?.prodejni_bez_dph != null && cena < zaokr(c.prodejni_bez_dph))
       varovani.push('nižší než ceník ' + kc(c.prodejni_bez_dph));
     const posl = stav.posledniCeny[klicPolozky(p)];
-    if (posl && cena < posl.cena * 0.995)
+    if (posl && cena < zaokr(posl.cena))
       varovani.push(`posledně jsi účtoval ${kc(posl.cena)} (${posl.cislo})`);
   }
   return { text: [...casti, ...varovani].join(' · '), varovani: varovani.length > 0 };
@@ -1302,9 +1319,9 @@ $('#vd-zdroje').addEventListener('click', e => {
 });
 
 async function hledejVeVyberu() {
-  const q = $('#vd-hledat').value.trim().toLowerCase();
+  const q = bezDia($('#vd-hledat').value.trim());
   if (vyberRezim === 'cenik') {
-    vykresliVyber(stav.cenik.filter(c => !q || (c.nazev || '').toLowerCase().includes(q)));
+    vykresliVyber(stav.cenik.filter(c => !q || bezDia(c.nazev).includes(q)));
   } else {
     vykresliVyber(q.length < 2 ? [] : await hledejKatalog(q, 30));
   }
