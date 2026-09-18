@@ -276,9 +276,11 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
           <button class="chip" type="button" data-typ="" aria-pressed="true">Vše</button>
           <button class="chip" type="button" data-typ="nabidka" aria-pressed="false">Nabídky</button>
           <button class="chip" type="button" data-typ="faktura" aria-pressed="false">Faktury</button>
+          <button class="chip" type="button" data-typ="smlouva" aria-pressed="false">Smlouvy</button>
         </span>
         <button class="btn btn-metr" id="dk-nova-nabidka">Nová nabídka</button>
         <button class="btn" id="dk-nova-faktura">Nová faktura</button>
+        <button class="btn btn-tichy" id="dk-nova-smlouva">Nová smlouva o dílo</button>
       </div>
       <div class="seznam" id="dk-seznam"><div class="prazdno">Načítám doklady…</div></div>
     </section>
@@ -289,6 +291,7 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
         <button class="btn btn-tichy" id="d-zpet">← Zpět</button>
         <h1 id="d-nadpis">Doklad</h1>
         <button class="btn btn-tichy" id="d-objednavka">Objednávkový list</button>
+        <button class="btn btn-tichy" id="d-na-smlouvu">Vytvořit smlouvu</button>
         <button class="btn btn-tichy" id="d-na-fakturu">Vystavit fakturu</button>
         <button class="btn btn-tichy" id="d-tisk">Tisk / PDF</button>
         <button class="btn" id="d-ulozit">Uložit</button>
@@ -316,7 +319,23 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
           <div class="radek" data-jen-faktura><label for="d-platba">Způsob platby</label>
             <select id="d-platba" class="pole"><option value="">–</option><option>Převodem</option><option>Hotově</option><option>Kartou</option></select></div>
         </div>
-        <div class="radek"><label for="d-uvod">Úvodní text</label><textarea id="d-uvod" class="pole" rows="2" placeholder="Např. Nabídka na rekonstrukci koupelny…"></textarea></div>
+        <div class="radek"><label for="d-uvod">Předmět díla / úvodní text</label><textarea id="d-uvod" class="pole" rows="2" placeholder="Např. Rekonstrukce koupelny v bytě č. 4…"></textarea></div>
+
+        <div data-jen-smlouva class="skryt">
+          <div class="mrizka">
+            <div class="radek"><label for="d-misto">Místo plnění</label><input id="d-misto" class="pole" placeholder="Ulice, město"></div>
+            <div class="radek"><label for="d-od">Zahájení prací</label><input id="d-od" class="pole" type="date"></div>
+            <div class="radek"><label for="d-do">Dokončení díla</label><input id="d-do" class="pole" type="date"></div>
+            <div class="radek"><label for="d-zaruka">Záruka (měsíců)</label><input id="d-zaruka" class="pole" inputmode="numeric"></div>
+            <div class="radek"><label for="d-zaloha">Záloha (%)</label><input id="d-zaloha" class="pole" inputmode="decimal"></div>
+          </div>
+          <div class="radek">
+            <label for="d-text">Text smlouvy</label>
+            <textarea id="d-text" class="pole" rows="18" style="font-size:.92rem;line-height:1.55"></textarea>
+            <p class="napoveda">Text si můžeš libovolně přepsat. Tlačítko níže ho znovu sestaví ze zadaných údajů a přepíše tvoje úpravy.</p>
+            <button class="btn btn-tichy btn-maly" type="button" id="d-generovat" style="margin-top:.5rem">Sestavit text ze zadání</button>
+          </div>
+        </div>
       </div>
 
       <div class="karta" style="padding:0;overflow:hidden">
@@ -1082,13 +1101,13 @@ function vykresliDoklady() {
   const radky = stav.doklady.filter(d => (!t || d.typ === t) &&
     (!f || bezDia(d.cislo).includes(f) || bezDia(d.odberatel?.nazev).includes(f)));
   if (!radky.length) {
-    el.innerHTML = `<div class="prazdno">${t === 'nabidka' ? 'Zatím žádná nabídka.' : t === 'faktura' ? 'Zatím žádná faktura.' : 'Filtru nic neodpovídá.'}</div>`;
+    el.innerHTML = `<div class="prazdno">${t === 'nabidka' ? 'Zatím žádná nabídka.' : t === 'faktura' ? 'Zatím žádná faktura.' : t === 'smlouva' ? 'Zatím žádná smlouva.' : 'Filtru nic neodpovídá.'}</div>`;
     return;
   }
   el.innerHTML = radky.map(d => `<button class="rada rada-doklad" data-id="${esc(d.id)}">
       <span class="cislo-dokladu">${esc(d.cislo)}</span>
       <span><span class="p-nazev">${esc(d.odberatel?.nazev || 'Bez odběratele')}</span>
-        <span class="p-meta" style="display:block">${esc(d.typ === 'faktura' ? 'Faktura' : 'Nabídka')}, ${esc(datum(d.datum_vystaveni))}</span></span>
+        <span class="p-meta" style="display:block">${esc(d.typ === 'faktura' ? 'Faktura' : d.typ === 'smlouva' ? 'Smlouva o dílo' : 'Nabídka')}, ${esc(datum(d.datum_vystaveni))}</span></span>
       <span class="stitek d-stav${d.stav === 'zaplaceno' || d.stav === 'prijato' ? ' ok' : d.stav === 'stornovano' ? ' varovani' : ''}">${esc(STAVY[d.stav] || d.stav)}</span>
       <span class="c-ceny"><span class="cena">${kc(d.celkem_s_dph)}</span>s DPH</span>
     </button>`).join('');
@@ -1107,6 +1126,10 @@ async function novyDoklad(typ, zaklad = null) {
     firma_id: stav.firma.id, typ, cislo: cisloDokladu, datum_vystaveni: dnes(),
     stav: 'koncept',
     datum_splatnosti: typ === 'faktura' ? plusDni(dnes(), 14) : null,
+    termin_od: typ === 'smlouva' ? dnes() : null,
+    termin_do: typ === 'smlouva' ? plusDni(dnes(), 30) : null,
+    zaruka_mesice: typ === 'smlouva' ? 24 : null,
+    zaloha_pct: typ === 'smlouva' ? 30 : null,
     datum_plneni: typ === 'faktura' ? dnes() : null,
     variabilni_symbol: typ === 'faktura' ? cisloDokladu.replace(/\D/g, '') : null,
     zpusob_platby: typ === 'faktura' ? 'Převodem' : null
@@ -1138,8 +1161,8 @@ async function otevriDoklad(id) {
   if (e1 || e2) return toast('Doklad se nepodařilo načíst: ' + prelozChybu(e1 || e2), true);
   stav.doklad = d;
   stav.polozky = (p || []).map(x => ({ ...x }));
-  const faktura = d.typ === 'faktura';
-  $('#d-nadpis').textContent = (faktura ? 'Faktura ' : 'Nabídka ') + d.cislo;
+  const faktura = d.typ === 'faktura', smlouva = d.typ === 'smlouva';
+  $('#d-nadpis').textContent = (faktura ? 'Faktura ' : smlouva ? 'Smlouva o dílo ' : 'Nabídka ') + d.cislo;
   $('#d-kontakt').value = d.kontakt_id || '';
   $('#d-stav').value = d.stav;
   $('#d-vystaveni').value = d.datum_vystaveni || dnes();
@@ -1149,8 +1172,16 @@ async function otevriDoklad(id) {
   $('#d-platba').value = d.zpusob_platby || '';
   $('#d-uvod').value = d.uvod || '';
   $('#d-poznamka').value = d.poznamka || '';
+  $('#d-misto').value = d.misto_plneni || '';
+  $('#d-od').value = d.termin_od || '';
+  $('#d-do').value = d.termin_do || '';
+  $('#d-zaruka').value = d.zaruka_mesice ?? '';
+  $('#d-zaloha').value = vPole(d.zaloha_pct);
+  $('#d-text').value = d.smluvni_text || '';
   $$('[data-jen-faktura]').forEach(x => x.classList.toggle('skryt', !faktura));
+  $$('[data-jen-smlouva]').forEach(x => x.classList.toggle('skryt', !smlouva));
   $('#d-na-fakturu').classList.toggle('skryt', faktura);
+  $('#d-na-smlouvu').classList.toggle('skryt', smlouva || faktura);
   $('#d-objednavka').classList.toggle('skryt', faktura);
   $('#d-info').textContent = 'Ceny na dokladu jsou uzamčené. Pozdější změna ceníku ani noční import je nezmění.';
   vykresliPolozky();
@@ -1456,7 +1487,13 @@ async function ulozDoklad(tise = false) {
     variabilni_symbol: $('#d-vs').value.trim() || null,
     zpusob_platby: $('#d-platba').value || null,
     uvod: $('#d-uvod').value.trim() || null,
-    poznamka: $('#d-poznamka').value.trim() || null
+    poznamka: $('#d-poznamka').value.trim() || null,
+    misto_plneni: $('#d-misto').value.trim() || null,
+    termin_od: $('#d-od').value || null,
+    termin_do: $('#d-do').value || null,
+    zaruka_mesice: cislo($('#d-zaruka').value),
+    zaloha_pct: cislo($('#d-zaloha').value),
+    smluvni_text: $('#d-text').value.trim() || null
   };
   $('#d-ulozit').disabled = true;
   const { error } = await sb.from('doklady').update(z).eq('id', stav.doklad.id);
@@ -2131,6 +2168,151 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
 vykresliDruhy();
 vykresliVstupy(false);
 
+
+/* ================= SMLOUVA O DÍLO ================= */
+
+/** Sestaví text smlouvy ze zadaných údajů. Uživatel ho pak může libovolně přepsat. */
+function textSmlouvy() {
+  const d = stav.doklad, o = d.odberatel || {}, f = firmaBlok(), s = souhrnDoklad();
+  const cena = s.bez + s.dph;
+  const zaloha = cislo($('#d-zaloha').value) ?? 0;
+  const zaruka = cislo($('#d-zaruka').value) ?? 24;
+  const misto = $('#d-misto').value.trim() || '(doplň místo plnění)';
+  const od = $('#d-od').value ? datum($('#d-od').value) : '(doplň termín zahájení)';
+  const doDne = $('#d-do').value ? datum($('#d-do').value) : '(doplň termín dokončení)';
+  const predmet = $('#d-uvod').value.trim() || '(doplň předmět díla)';
+  const adresaO = [o.ulice, [o.psc, o.mesto].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const cenaText = stav.firma.platce_dph
+    ? `${kc(s.bez)} bez DPH, DPH ${kc(s.dph)}, celkem ${kc(cena)} včetně DPH`
+    : `${kc(s.bez)}. Zhotovitel není plátcem DPH.`;
+  const zalohaCastka = zaokr(cena * zaloha / 100);
+
+  return `SMLOUVA O DÍLO č. ${d.cislo}
+uzavřená podle § 2586 a násl. zákona č. 89/2012 Sb., občanský zákoník
+
+I. SMLUVNÍ STRANY
+
+Zhotovitel: ${f.nazev}
+Sídlo: ${f.adresa || '(doplň adresu v kartě Firma)'}
+IČO: ${f.ico || '(doplň)'}${f.dic ? ', DIČ: ' + f.dic : ''}
+Bankovní účet: ${f.ucet || '(doplň číslo účtu v kartě Firma)'}
+Telefon: ${f.telefon || '(doplň)'}
+
+Objednatel: ${o.nazev || '(vyber odběratele)'}
+Adresa: ${adresaO || '(doplň adresu odběratele)'}
+${o.ico ? 'IČO: ' + o.ico : ''}${o.dic ? ', DIČ: ' + o.dic : ''}
+${o.telefon ? 'Telefon: ' + o.telefon : ''}${o.email ? ', E-mail: ' + o.email : ''}
+
+II. PŘEDMĚT DÍLA
+
+1. Zhotovitel se zavazuje provést pro objednatele na svůj náklad a nebezpečí dílo:
+${predmet}
+2. Rozsah díla je podrobně vymezen v soupisu prací a materiálu, který je nedílnou přílohou této smlouvy.
+3. Objednatel se zavazuje dokončené dílo převzít a zaplatit sjednanou cenu.
+
+III. MÍSTO A DOBA PLNĚNÍ
+
+1. Místem plnění je: ${misto}
+2. Zhotovitel zahájí práce dne ${od} a dílo dokončí a předá nejpozději dne ${doDne}.
+3. Termín se prodlužuje o dobu, po kterou zhotovitel nemohl pracovat z důvodů na straně objednatele, pro nepříznivé počasí znemožňující technologické postupy nebo z důvodu vyšší moci.
+4. Objednatel zajistí zhotoviteli přístup na místo plnění, odběr elektrické energie a vody a prostor pro uskladnění materiálu.
+
+IV. CENA DÍLA
+
+1. Cena díla je sjednána dohodou stran ve výši ${cenaText}
+2. Cena vychází ze soupisu prací a materiálu podle přílohy této smlouvy a platí ke dni jejího podpisu.
+3. Práce nad rámec sjednaného rozsahu (vícepráce) budou provedeny jen na základě písemného odsouhlasení objednatelem, včetně jejich ceny a vlivu na termín dokončení.
+4. Zjistí-li zhotovitel při provádění díla skryté vady podkladu nebo jiné okolnosti, které nebylo možné předem zjistit, oznámí to objednateli a strany se dohodnou na dalším postupu.
+
+V. PLATEBNÍ PODMÍNKY
+
+${zaloha > 0
+  ? `1. Objednatel uhradí zálohu ve výši ${ks(zaloha)} % z ceny díla, tj. ${kc(zalohaCastka)}, do 7 dnů od podpisu této smlouvy.
+2. Zbývající část ceny uhradí objednatel na základě faktury vystavené po předání díla, se splatností 14 dnů.`
+  : `1. Cena díla bude uhrazena na základě faktury vystavené po předání díla, se splatností 14 dnů.`}
+3. Platby se provádějí převodem na účet zhotovitele uvedený v čl. I.
+4. Při prodlení s úhradou má zhotovitel právo na úrok z prodlení ve výši stanovené právním předpisem.
+
+VI. PROVEDENÍ DÍLA A SOUČINNOST
+
+1. Zhotovitel provede dílo v odpovídající kvalitě, v souladu s platnými technickými normami a technologickými postupy výrobců použitých materiálů.
+2. Zhotovitel odpovídá za pořádek a bezpečnost na pracovišti a po dokončení prací místo vyklidí.
+3. Objednatel je oprávněn průběh prací kontrolovat a na zjištěné nedostatky bez odkladu upozornit.
+4. Práce, které budou dalším postupem zakryty, vyzve zhotovitel objednatele ke kontrole nejméně 2 pracovní dny předem.
+
+VII. PŘEDÁNÍ DÍLA A ZÁRUKA
+
+1. O předání a převzetí díla sepíší strany předávací protokol. Drobné vady a nedodělky nebránící užívání nejsou důvodem k odmítnutí převzetí.
+2. Zhotovitel poskytuje na provedené práce záruku ${ks(zaruka)} měsíců ode dne předání díla. Na dodaný materiál platí záruka poskytnutá jeho výrobcem.
+3. Záruka se nevztahuje na vady způsobené běžným opotřebením, nesprávným užíváním, zásahem třetí osoby nebo neprovedením běžné údržby.
+4. Vady v záruce uplatní objednatel písemně bez zbytečného odkladu po jejich zjištění.
+
+VIII. ODSTOUPENÍ OD SMLOUVY
+
+1. Od smlouvy může kterákoli strana odstoupit při podstatném porušení povinností druhou stranou, které nebylo odstraněno ani v dodatečné lhůtě 14 dnů.
+2. Při odstoupení uhradí objednatel zhotoviteli prokazatelně provedené práce a účelně vynaložený materiál.
+
+IX. ZÁVĚREČNÁ UJEDNÁNÍ
+
+1. Smlouva se uzavírá ve dvou stejnopisech, každá strana obdrží jeden.
+2. Změny a doplňky lze činit pouze písemnými dodatky podepsanými oběma stranami.
+3. Vztahy touto smlouvou neupravené se řídí občanským zákoníkem.
+4. Strany prohlašují, že si smlouvu přečetly, souhlasí s jejím obsahem a uzavírají ji svobodně a vážně, což stvrzují svými podpisy.`;
+}
+
+$('#d-generovat').addEventListener('click', () => {
+  if ($('#d-text').value.trim() && !confirm('Přepsat text smlouvy novým textem ze zadaných údajů?\n\nTvoje úpravy se ztratí.')) return;
+  $('#d-text').value = textSmlouvy();
+  toast('Text sestaven. Projdi ho a uprav podle konkrétní zakázky.');
+});
+
+$('#dk-nova-smlouva').addEventListener('click', () => novyDoklad('smlouva'));
+
+$('#d-na-smlouvu').addEventListener('click', async () => {
+  if (!(await ulozDoklad(true))) return;
+  await doCeniku();
+  await novyDoklad('smlouva', {
+    kontakt_id: stav.doklad.kontakt_id, odberatel: stav.doklad.odberatel,
+    uvod: stav.doklad.uvod, poznamka: stav.doklad.poznamka, polozky: stav.polozky
+  });
+  $('#d-text').value = textSmlouvy();
+  toast('Smlouva vytvořená z nabídky. Zkontroluj termíny a text, pak ulož.');
+});
+
+/* ---- tisk smlouvy ---- */
+function tiskSmlouva() {
+  const d = stav.doklad, s = souhrnDoklad();
+  const radky = stav.polozky.filter(p => (p.nazev || '').trim()).map((p, i) => {
+    const c = zaokr((Number(p.mnozstvi) || 0) * (Number(p.cena_bez_dph) || 0) * (1 - (Number(p.sleva_pct) || 0) / 100));
+    return `<tr><td class="c">${i + 1}</td><td>${esc(p.nazev)}</td><td class="c">${ks(p.mnozstvi)}</td>
+      <td>${esc(p.mj || '')}</td><td class="c">${kc(p.cena_bez_dph)}</td><td class="c">${kc(c)}</td></tr>`;
+  }).join('');
+  const f = firmaBlok(), o = d.odberatel || {};
+  const text = ($('#d-text').value.trim() || textSmlouvy());
+
+  $('#tisk').innerHTML = `
+    <div style="white-space:pre-line;font-size:12px;line-height:1.55">${esc(text)}</div>
+    <div class="tisk-strany" style="margin-top:34px">
+      <div style="text-align:center">V ................................ dne ................<br><br><br>
+        ..............................................<br>${esc(f.nazev)}<br>zhotovitel</div>
+      <div style="text-align:center">V ................................ dne ................<br><br><br>
+        ..............................................<br>${esc(o.nazev || 'objednatel')}<br>objednatel</div>
+    </div>
+    <div style="page-break-before:always">
+      <h1>Příloha č. 1 – Soupis prací a materiálu</h1>
+      <div>ke smlouvě o dílo č. ${esc(d.cislo)}</div>
+      <table><thead><tr><th class="c">#</th><th>Položka</th><th class="c">Množ.</th><th>MJ</th>
+        <th class="c">Cena/MJ</th><th class="c">Celkem bez DPH</th></tr></thead><tbody>${radky}</tbody></table>
+      <div class="tisk-souhrn"><table>
+        <tr><td>Základ bez DPH</td><td class="c">${kc(s.bez)}</td></tr>
+        <tr><td>DPH</td><td class="c">${kc(s.dph)}</td></tr>
+        <tr><td><strong>Cena díla celkem</strong></td><td class="c"><strong>${kc(s.bez + s.dph)}</strong></td></tr>
+      </table></div>
+      <div class="tisk-pata">Ceny materiálu platí ke dni podpisu smlouvy a řídí se aktuálním ceníkem dodavatele.</div>
+    </div>`;
+  window.print();
+}
+
 /* ================= TISK ================= */
 function firmaBlok() {
   const f = stav.firma;
@@ -2226,7 +2408,7 @@ function tiskDoklad() {
 $('#d-tisk').addEventListener('click', async () => {
   if (!(await ulozDoklad(true))) return;
   await doCeniku();
-  tiskDoklad();
+  if (stav.doklad.typ === 'smlouva') tiskSmlouva(); else tiskDoklad();
 });
 
 $('#d-objednavka').addEventListener('click', async () => {
