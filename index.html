@@ -138,6 +138,8 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
 .dlg-pata{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.5rem}
 .dlg-pata .konec{display:flex;gap:.6rem;margin-left:auto}
 
+.p-meta.varovani{color:var(--pozor);font-weight:600}
+.p-meta.pozor{color:#8A6A00;font-weight:600}
 #toast{position:fixed;left:50%;bottom:5.5rem;transform:translateX(-50%);background:var(--inkoust);color:#fff;padding:.7rem 1.1rem;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:60;max-width:calc(100% - 2rem)}
 #toast.chyba{background:var(--pozor)}
 
@@ -334,6 +336,7 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
     <section id="v-cenik" class="skryt">
       <div class="nastroje">
         <input id="c-filtr" class="pole" type="search" placeholder="Filtrovat ceník" aria-label="Filtrovat ceník">
+        <label class="zatrzitko"><input type="checkbox" id="c-kontrola"> Jen ke kontrole</label>
         <button class="btn btn-metr" id="c-pridat">Přidat položku</button>
       </div>
       <div class="seznam" id="c-seznam"><div class="prazdno">Načítám ceník…</div></div>
@@ -354,7 +357,11 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
         <h2>Údaje firmy</h2>
         <div class="radek"><label for="f-nazev">Název nebo jméno</label><input id="f-nazev" class="pole" required></div>
         <div class="mrizka">
-          <div class="radek"><label for="f-ico">IČO</label><input id="f-ico" class="pole" inputmode="numeric" maxlength="8"></div>
+          <div class="radek"><label for="f-ico">IČO</label>
+            <div style="display:flex;gap:.5rem">
+              <input id="f-ico" class="pole" inputmode="numeric" maxlength="8">
+              <button class="btn btn-tichy" type="button" id="f-ares" title="Doplnit údaje z ARES">ARES</button>
+            </div></div>
           <div class="radek"><label for="f-dic">DIČ</label><input id="f-dic" class="pole" maxlength="14"></div>
         </div>
         <div class="radek"><label for="f-adresa">Adresa</label><input id="f-adresa" class="pole" placeholder="Ulice, město, PSČ"></div>
@@ -393,6 +400,8 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
         <div class="radek"><label for="cd-prodej">Prodej bez DPH</label><input id="cd-prodej" class="pole" inputmode="decimal"></div>
       </div>
       <p class="napoveda skryt" id="cd-napoveda">Nákup je předvyplněný z ceny s DPH v katalogu. Přepiš ho na svou skutečnou nákupní cenu.</p>
+      <p class="napoveda skryt" id="cd-katalog-info"></p>
+      <button type="button" class="btn btn-tichy btn-maly skryt" id="cd-prevzit" style="margin-bottom:.8rem">Převzít nákupní cenu z katalogu</button>
       <div class="souhrn"><span>Prodej s DPH</span><span class="cena" id="cd-sdph">–</span></div>
       <div class="radek"><label for="cd-poznamka">Poznámka</label><textarea id="cd-poznamka" class="pole" rows="2"></textarea></div>
       <div class="dlg-pata">
@@ -417,7 +426,11 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
       <input type="hidden" id="kd-id">
       <div class="radek"><label for="kd-nazev">Jméno nebo firma</label><input id="kd-nazev" class="pole" required></div>
       <div class="mrizka">
-        <div class="radek"><label for="kd-ico">IČO</label><input id="kd-ico" class="pole" inputmode="numeric" maxlength="8"></div>
+        <div class="radek"><label for="kd-ico">IČO</label>
+          <div style="display:flex;gap:.5rem">
+            <input id="kd-ico" class="pole" inputmode="numeric" maxlength="8">
+            <button class="btn btn-tichy" type="button" id="kd-ares" title="Doplnit údaje z ARES">ARES</button>
+          </div></div>
         <div class="radek"><label for="kd-dic">DIČ</label><input id="kd-dic" class="pole" maxlength="14"></div>
       </div>
       <div class="radek"><label for="kd-ulice">Ulice</label><input id="kd-ulice" class="pole"></div>
@@ -450,6 +463,23 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
   <div class="dlg-telo">
     <input id="vd-hledat" class="pole" type="search" placeholder="Hledat" style="margin-bottom:.8rem">
     <div class="seznam" id="vd-seznam"><div class="prazdno">Napiš, co hledáš.</div></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-nove">
+  <div class="metr dlg-hlava">
+    <button type="button" class="dlg-zavrit" aria-label="Zavřít" data-zavrit>×</button>
+    <h2>Uložit do ceníku?</h2>
+  </div>
+  <div class="dlg-telo">
+    <p class="napoveda" style="margin-bottom:.6rem">Tyhle položky jsi napsal ručně. Uložením do ceníku je příště jen vybereš.</p>
+    <div id="nd-seznam"></div>
+    <div class="dlg-pata">
+      <span class="konec">
+        <button type="button" class="btn btn-tichy" data-zavrit>Teď ne</button>
+        <button type="button" class="btn btn-metr" id="nd-ulozit">Uložit do ceníku</button>
+      </span>
+    </div>
   </div>
 </dialog>
 
@@ -508,7 +538,8 @@ function prelozChybu(e) {
 const stav = {
   user: null, firma: null, role: null,
   katalog: [], cenik: [], kontakty: [], doklady: [],
-  doklad: null, polozky: [], obnovaHesla: false, rezim: 'prihlaseni', predchoziTab: 'doklady'
+  doklad: null, polozky: [], katalogCeny: {}, posledniCeny: {},
+  obnovaHesla: false, rezim: 'prihlaseni', predchoziTab: 'doklady'
 };
 
 function ukaz(obr) { ['prihlaseni', 'heslo', 'app'].forEach(o => $('#obr-' + o).classList.toggle('skryt', o !== obr)); }
@@ -579,7 +610,7 @@ async function start(user) {
   if (location.hash) history.replaceState(null, '', APP_URL);
 
   const { data, error } = await sb.from('clenove')
-    .select('role, firma:firmy(id, nazev, ico, dic, platce_dph, tarif)')
+    .select('role, firma:firmy(id, nazev, ico, dic, platce_dph, tarif, adresa, telefon, ucet)')
     .eq('user_id', user.id).limit(1).maybeSingle();
   if (error || !data?.firma) {
     toast(error ? 'Firmu se nepodařilo načíst: ' + prelozChybu(error) : 'K účtu není přiřazená žádná firma.', true);
@@ -607,8 +638,7 @@ function vykresliFirmu() {
   $('#h-firma').textContent = f.nazev;
   $('#f-nazev').value = f.nazev || ''; $('#f-ico').value = f.ico || ''; $('#f-dic').value = f.dic || '';
   $('#f-platce').checked = !!f.platce_dph;
-  $('#f-adresa').value = pamet.cti('firma-adresa', ''); $('#f-telefon').value = pamet.cti('firma-telefon', '');
-  $('#f-ucet').value = pamet.cti('firma-ucet', '');
+  $('#f-adresa').value = f.adresa || ''; $('#f-telefon').value = f.telefon || ''; $('#f-ucet').value = f.ucet || '';
   const vlastnik = stav.role === 'vlastnik';
   $$('#f-firma input, #f-firma button').forEach(x => { x.disabled = !vlastnik; });
 }
@@ -618,14 +648,14 @@ $('#f-firma').addEventListener('submit', async e => {
   const nazev = $('#f-nazev').value.trim(), ico = $('#f-ico').value.replace(/\s/g, '');
   if (!nazev) return toast('Doplň název firmy.', true);
   if (ico && !/^\d{8}$/.test(ico)) return toast('IČO má 8 číslic.', true);
-  pamet.pis('firma-adresa', $('#f-adresa').value.trim());
-  pamet.pis('firma-telefon', $('#f-telefon').value.trim());
-  pamet.pis('firma-ucet', $('#f-ucet').value.trim());
   $('#f-ulozit').disabled = true;
   const { data, error } = await sb.from('firmy').update({
     nazev, ico: ico || null,
     dic: $('#f-dic').value.replace(/\s/g, '').toUpperCase() || null,
-    platce_dph: $('#f-platce').checked
+    platce_dph: $('#f-platce').checked,
+    adresa: $('#f-adresa').value.trim() || null,
+    telefon: $('#f-telefon').value.trim() || null,
+    ucet: $('#f-ucet').value.trim() || null
   }).eq('id', stav.firma.id).select().maybeSingle();
   $('#f-ulozit').disabled = false;
   if (error || !data) return toast('Uložení selhalo: ' + prelozChybu(error || 'nemáš oprávnění'), true);
@@ -737,7 +767,41 @@ function zCatalogu(p) {
 async function nactiCenik() {
   const { data, error } = await sb.from('cenik').select('*').eq('firma_id', stav.firma.id).order('nazev');
   if (error) { $('#c-seznam').innerHTML = `<div class="prazdno chyba">Ceník se nepodařilo načíst: ${esc(prelozChybu(error))}</div>`; return; }
-  stav.cenik = data || []; vykresliCenik();
+  stav.cenik = data || [];
+  await nactiKatalogoveCeny(stav.cenik.map(c => c.katalog_id));
+  vykresliCenik();
+}
+
+/** Aktuální ceny a zásoby položek katalogu, na které je něco navázané. */
+async function nactiKatalogoveCeny(idcka) {
+  const ids = [...new Set((idcka || []).filter(Boolean))].filter(id => !stav.katalogCeny[id]);
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await sb.from('katalog')
+      .select('id, kod, nazev, cena_s_dph, sazba_dph, zasoby').in('id', ids.slice(i, i + 200));
+    (data || []).forEach(k => { stav.katalogCeny[k.id] = k; });
+  }
+}
+
+/** Dnešní nákupní cena bez DPH podle katalogu. */
+function nakupDnes(katalogId) {
+  const k = katalogId && stav.katalogCeny[katalogId];
+  if (!k || k.cena_s_dph == null) return null;
+  return zaokr(k.cena_s_dph / (1 + Number(k.sazba_dph ?? 21) / 100));
+}
+
+/** Co je na položce ceníku špatně: zdražený nákup nebo ztrátová cena. */
+function kontrolaCeniku(c) {
+  const dnesni = nakupDnes(c.katalog_id);
+  const prodej = c.prodejni_bez_dph;
+  if (dnesni == null) return null;
+  if (prodej != null && prodej <= dnesni) return { druh: 'ztrata', text: 'prodej pod nákupem ' + kc(dnesni) };
+  const ulozeny = c.nakupni_bez_dph;
+  if (ulozeny != null && ulozeny > 0) {
+    const zmena = (dnesni / ulozeny - 1) * 100;
+    if (zmena >= 1) return { druh: 'drazsi', text: 'nákup vzrostl o ' + ks(zaokr(zmena)) + ' % na ' + kc(dnesni) };
+    if (zmena <= -1) return { druh: 'levnejsi', text: 'nákup klesl na ' + kc(dnesni) };
+  }
+  return null;
 }
 const sDph = c => c.prodejni_bez_dph == null ? null : zaokr(c.prodejni_bez_dph * (1 + Number(c.sazba_dph ?? 21) / 100));
 
@@ -747,15 +811,22 @@ $('#c-pridat').addEventListener('click', () => otevriCenik({ typ: 'material', sa
 function vykresliCenik() {
   const el = $('#c-seznam'), f = $('#c-filtr').value.trim().toLowerCase();
   if (!stav.cenik.length) { el.innerHTML = '<div class="prazdno">Ceník je prázdný. Najdi materiál v katalogu a dej „Do ceníku“, nebo přidej vlastní položku či práci.</div>'; return; }
-  const radky = stav.cenik.filter(c => !f || (c.nazev || '').toLowerCase().includes(f) || (c.poznamka || '').toLowerCase().includes(f));
-  if (!radky.length) { el.innerHTML = '<div class="prazdno">Filtru nic neodpovídá.</div>'; return; }
-  el.innerHTML = radky.map(c => `<button class="rada rada-cenik" data-id="${esc(c.id)}">
+  const jenKontrola = $('#c-kontrola').checked;
+  const radky = stav.cenik.filter(c => (!f || (c.nazev || '').toLowerCase().includes(f) || (c.poznamka || '').toLowerCase().includes(f))
+    && (!jenKontrola || ['drazsi', 'ztrata'].includes(kontrolaCeniku(c)?.druh)));
+  if (!radky.length) { el.innerHTML = `<div class="prazdno">${jenKontrola ? 'Ceny jsou v pořádku, nic ke kontrole.' : 'Filtru nic neodpovídá.'}</div>`; return; }
+  el.innerHTML = radky.map(c => {
+    const k = kontrolaCeniku(c);
+    return `<button class="rada rada-cenik" data-id="${esc(c.id)}">
       <span><span class="p-nazev">${esc(c.nazev)}</span>
-        <span class="p-meta" style="display:block">${esc([c.mj, c.prirazka_pct ? 'přirážka ' + ks(c.prirazka_pct) + ' %' : '', c.poznamka].filter(Boolean).join(', '))}</span></span>
+        <span class="p-meta" style="display:block">${esc([c.mj, c.prirazka_pct ? 'přirážka ' + ks(c.prirazka_pct) + ' %' : '', c.poznamka].filter(Boolean).join(', '))}</span>
+        ${k ? `<span class="p-meta ${k.druh === 'levnejsi' ? '' : k.druh === 'ztrata' ? 'varovani' : 'pozor'}" style="display:block">${esc(k.text)}</span>` : ''}</span>
       <span class="stitek c-typ">${esc(TYPY[c.typ] || c.typ)}</span>
       <span class="c-ceny"><span class="cena">${kc(c.prodejni_bez_dph)}</span>bez DPH, s DPH ${kc(sDph(c))}</span>
-    </button>`).join('');
+    </button>`;
+  }).join('');
 }
+$('#c-kontrola').addEventListener('change', vykresliCenik);
 
 $('#c-seznam').addEventListener('click', e => {
   const r = e.target.closest('.rada'); if (!r) return;
@@ -772,6 +843,16 @@ function otevriCenik(c, zKatalogu = false) {
   $('#cd-poznamka').value = c.poznamka || '';
   if (c.prodejni_bez_dph != null) $('#cd-prodej').value = vPole(c.prodejni_bez_dph); else prodejZPrirazky();
   $('#cd-napoveda').classList.toggle('skryt', !zKatalogu);
+  const dnesni = nakupDnes(c.katalog_id);
+  $('#cd-katalog-info').classList.toggle('skryt', dnesni == null);
+  $('#cd-prevzit').classList.toggle('skryt', dnesni == null || zaokr(c.nakupni_bez_dph ?? 0) === dnesni);
+  if (dnesni != null) {
+    const k = kontrolaCeniku(c);
+    $('#cd-katalog-info').textContent = 'Nákup podle dnešního katalogu: ' + kc(dnesni)
+      + (k ? ' – ' + k.text : '');
+    $('#cd-katalog-info').className = 'napoveda' + (k && k.druh !== 'levnejsi' ? ' chyba' : '');
+    $('#cd-prevzit').dataset.cena = String(dnesni);
+  }
   $('#cd-smazat').classList.toggle('skryt', !c.id);
   souhrnCenik(); dlgCenik.showModal(); $('#cd-nazev').focus();
 }
@@ -791,6 +872,12 @@ $('#cd-nakup').addEventListener('input', () => { prodejZPrirazky(); souhrnCenik(
 $('#cd-prirazka').addEventListener('input', () => { prodejZPrirazky(); souhrnCenik(); });
 $('#cd-prodej').addEventListener('input', () => { prirazkaZProdeje(); souhrnCenik(); });
 $('#cd-dph').addEventListener('change', souhrnCenik);
+$('#cd-prevzit').addEventListener('click', e => {
+  $('#cd-nakup').value = vPole(Number(e.target.dataset.cena));
+  prodejZPrirazky(); souhrnCenik();
+  $('#cd-prevzit').classList.add('skryt');
+  toast('Nákup převzat z katalogu, prodej přepočítán podle přirážky.');
+});
 
 $('#f-polozka').addEventListener('submit', async e => {
   e.preventDefault();
@@ -806,6 +893,16 @@ $('#f-polozka').addEventListener('submit', async e => {
     poznamka: $('#cd-poznamka').value.trim() || null
   };
   const id = $('#cd-id').value;
+  const puvodni = stav.cenik.find(x => x.id === id);
+  if (puvodni && puvodni.prodejni_bez_dph != null && z.prodejni_bez_dph != null
+      && z.prodejni_bez_dph < puvodni.prodejni_bez_dph
+      && !confirm('Snižuješ prodejní cenu z ' + kc(puvodni.prodejni_bez_dph) + ' na ' + kc(z.prodejni_bez_dph) + '.\n\nOpravdu uložit?')) {
+    return;
+  }
+  if (z.nakupni_bez_dph != null && z.prodejni_bez_dph != null && z.prodejni_bez_dph <= z.nakupni_bez_dph
+      && !confirm('Prodejní cena není vyšší než nákupní. Na položce nic nevyděláš.\n\nOpravdu uložit?')) {
+    return;
+  }
   $('#cd-ulozit').disabled = true;
   let v;
   if (id) v = await sb.from('cenik').update(z).eq('id', id);
@@ -1190,9 +1287,54 @@ $('#d-na-fakturu').addEventListener('click', async () => {
 
 /* ================= TISK ================= */
 function firmaBlok() {
-  return { nazev: stav.firma.nazev, ico: stav.firma.ico, dic: stav.firma.dic,
-    adresa: pamet.cti('firma-adresa', ''), telefon: pamet.cti('firma-telefon', ''), ucet: pamet.cti('firma-ucet', '') };
+  const f = stav.firma;
+  return { nazev: f.nazev, ico: f.ico, dic: f.dic, adresa: f.adresa || '', telefon: f.telefon || '', ucet: f.ucet || '' };
 }
+
+/* ================= ARES ================= */
+function icoOk(ico) {
+  if (!/^\d{8}$/.test(ico)) return false;
+  let s = 0;
+  for (let i = 0; i < 7; i++) s += Number(ico[i]) * (8 - i);
+  const z = s % 11, k = z === 0 ? 1 : z === 1 ? 0 : 11 - z;
+  return k === Number(ico[7]);
+}
+
+async function zAres(icoPole, tlacitko) {
+  const ico = icoPole.value.replace(/\s/g, '').padStart(8, '0');
+  if (!icoOk(ico)) { toast('Zadej platné IČO (8 číslic).', true); icoPole.focus(); return null; }
+  tlacitko.disabled = true;
+  const puvodni = tlacitko.textContent;
+  tlacitko.textContent = '…';
+  const { data, error } = await sb.functions.invoke('ares', { body: { ico } });
+  tlacitko.disabled = false; tlacitko.textContent = puvodni;
+  if (error || !data || data.chyba) {
+    toast('ARES: ' + (data?.chyba || prelozChybu(error) || 'nepodařilo se načíst'), true);
+    return null;
+  }
+  icoPole.value = data.ico;
+  if (data.zanikl) toast('Pozor: subjekt je v ARES veden jako zaniklý.', true);
+  return data;
+}
+
+$('#f-ares').addEventListener('click', async e => {
+  const d = await zAres($('#f-ico'), e.target); if (!d) return;
+  if (d.nazev) $('#f-nazev').value = d.nazev;
+  if (d.dic) $('#f-dic').value = d.dic;
+  $('#f-adresa').value = [d.ulice, [d.psc, d.mesto].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  if (d.dic) $('#f-platce').checked = true;
+  toast('Údaje doplněny z ARES. Zkontroluj je a ulož.');
+});
+
+$('#kd-ares').addEventListener('click', async e => {
+  const d = await zAres($('#kd-ico'), e.target); if (!d) return;
+  if (d.nazev) $('#kd-nazev').value = d.nazev;
+  if (d.dic) $('#kd-dic').value = d.dic;
+  if (d.ulice) $('#kd-ulice').value = d.ulice;
+  if (d.mesto) $('#kd-mesto').value = d.mesto;
+  if (d.psc) $('#kd-psc').value = d.psc;
+  toast('Údaje doplněny z ARES. Zkontroluj je a ulož.');
+});
 
 function tiskDoklad() {
   const d = stav.doklad, o = d.odberatel || {}, f = firmaBlok(), s = souhrnDoklad();
