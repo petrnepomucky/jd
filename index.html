@@ -120,8 +120,10 @@ main{max-width:1080px;margin:0 auto;padding:1.2rem 1rem 6rem}
 .lista{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
 .lista h1{font-size:1.7rem;flex:1;min-width:140px}
 
-.dp{display:grid;grid-template-columns:minmax(150px,1fr) 72px 92px 62px 62px 104px 82px;gap:.45rem;padding:.55rem .8rem;border-top:1px solid var(--linka);align-items:center}
-.dp .btn-maly{padding:.35rem .5rem}
+.dp{display:grid;grid-template-columns:minmax(140px,1fr) 66px 86px 58px 58px 100px 150px;gap:.45rem;padding:.55rem .8rem;border-top:1px solid var(--linka);align-items:center}
+.dp .btn-maly{padding:.4rem .55rem;white-space:nowrap}
+.nahled{background:#fff;border:1px solid var(--linka);border-radius:8px;padding:1rem;white-space:pre-line;font-size:.9rem;line-height:1.55;max-height:420px;overflow:auto;margin-top:.6rem}
+.nahled mark{background:#FDF0C4;color:inherit;border-radius:3px;padding:0 .1rem}
 .dp-hlava{background:#EEF0EC;font-size:.8rem;font-weight:600;color:var(--ocel);border-top:0}
 .dp .pole{padding:.4rem .5rem}
 .dp-soucet{font-weight:600;text-align:right;white-space:nowrap}
@@ -184,7 +186,9 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
 .tisk-pata{margin-top:26px;font-size:11px;color:#444}
 
 @media (max-width:760px){
-  .dp{grid-template-columns:1fr 1fr 82px;gap:.4rem .5rem}
+  .dp{grid-template-columns:1fr 1fr;gap:.4rem .5rem}
+  .dp .akce-radku{grid-column:1/-1;display:flex;gap:.4rem}
+  .dp .akce-radku .btn{flex:1}
   .dp-hlava{display:none}
   .dp>label{display:none}
   .dp .nazev-pole{grid-column:1/3}
@@ -333,7 +337,14 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
             <label for="d-text">Text smlouvy</label>
             <textarea id="d-text" class="pole" rows="18" style="font-size:.92rem;line-height:1.55"></textarea>
             <p class="napoveda">Text si můžeš libovolně přepsat. Tlačítko níže ho znovu sestaví ze zadaných údajů a přepíše tvoje úpravy.</p>
-            <button class="btn btn-tichy btn-maly" type="button" id="d-generovat" style="margin-top:.5rem">Sestavit text ze zadání</button>
+            <div class="lista" style="margin-top:.5rem">
+              <button class="btn btn-tichy btn-maly" type="button" id="d-generovat">Sestavit text ze zadání</button>
+              <button class="btn btn-tichy btn-maly" type="button" id="d-vzor-ulozit">Uložit jako můj vzor</button>
+              <button class="btn btn-tichy btn-maly" type="button" id="d-vzor-nacist">Načíst můj vzor</button>
+              <button class="btn btn-tichy btn-maly" type="button" id="d-nahled-prep">Skrýt náhled</button>
+            </div>
+            <div class="nahled" id="d-nahled"></div>
+            <p class="napoveda">Žlutě jsou v náhledu hodnoty doplněné ze zadání. V tisku zvýrazněné nejsou.</p>
           </div>
         </div>
       </div>
@@ -682,7 +693,7 @@ async function start(user) {
   if (location.hash) history.replaceState(null, '', APP_URL);
 
   const { data, error } = await sb.from('clenove')
-    .select('role, firma:firmy(id, nazev, ico, dic, platce_dph, tarif, adresa, telefon, ucet)')
+    .select('role, firma:firmy(id, nazev, ico, dic, platce_dph, tarif, adresa, telefon, ucet, sablona_smlouvy)')
     .eq('user_id', user.id).limit(1).maybeSingle();
   if (error || !data?.firma) {
     toast(error ? 'Firmu se nepodařilo načíst: ' + prelozChybu(error) : 'K účtu není přiřazená žádná firma.', true);
@@ -1178,6 +1189,7 @@ async function otevriDoklad(id) {
   $('#d-zaruka').value = d.zaruka_mesice ?? '';
   $('#d-zaloha').value = vPole(d.zaloha_pct);
   $('#d-text').value = d.smluvni_text || '';
+  if (smlouva && !d.smluvni_text) $('#d-text').value = stav.firma.sablona_smlouvy || '';
   $$('[data-jen-faktura]').forEach(x => x.classList.toggle('skryt', !faktura));
   $$('[data-jen-smlouva]').forEach(x => x.classList.toggle('skryt', !smlouva));
   $('#d-na-fakturu').classList.toggle('skryt', faktura);
@@ -1189,6 +1201,10 @@ async function otevriDoklad(id) {
   await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id));
   await nactiPosledniCeny();
   obnovInfo();
+  if (smlouva) {
+    if (!$('#d-text').value.trim()) $('#d-text').value = textSmlouvy();
+    obnovNahled();
+  }
 }
 $('#d-zpet').addEventListener('click', () => { stav.doklad = null; prepniTab(stav.predchoziTab === 'doklad' ? 'doklady' : stav.predchoziTab); nactiDoklady(); });
 
@@ -1204,9 +1220,9 @@ function vykresliPolozky() {
       <input class="pole" data-f="sleva_pct" inputmode="decimal" value="${vPole(p.sleva_pct)}" aria-label="Sleva">
       <input class="pole" data-f="sazba_dph" inputmode="decimal" value="${vPole(p.sazba_dph)}" aria-label="DPH">
       <input class="pole vpravo" data-f="cena_bez_dph" inputmode="decimal" value="${vPole(p.cena_bez_dph)}" aria-label="Cena bez DPH">
-      <span style="display:flex;gap:.25rem">
-        <button class="btn btn-metr btn-maly" data-vymenit="${i}" aria-label="Vybrat položku z ceníku nebo katalogu" title="Vybrat položku z ceníku nebo katalogu">⇄</button>
-        <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek">×</button>
+      <span class="akce-radku" style="display:flex;gap:.3rem">
+        <button class="btn btn-metr btn-maly" data-vymenit="${i}" title="Vybrat položku z ceníku nebo katalogu">⇄ Vybrat</button>
+        <button class="btn btn-tichy btn-maly" data-smazat="${i}" aria-label="Odebrat řádek" title="Odebrat řádek">×</button>
       </span>
     </div>`).join('');
   souhrnDoklad();
@@ -1229,7 +1245,7 @@ $('#d-polozky').addEventListener('click', e => {
   const i = Number(v.dataset.vymenit);
   const p = stav.polozky[i];
   otevriVyber(p.katalog_id ? 'katalog' : 'cenik', async (zdroj, rezim) => {
-    const mn = p.mnozstvi;
+    const mn = p.mnozstvi, puvodniMj = p.mj;
     if (rezim === 'cenik') {
       Object.assign(p, { cenik_id: zdroj.id, katalog_id: zdroj.katalog_id || null, typ: zdroj.typ || 'material',
         nazev: zdroj.nazev, mj: zdroj.mj || p.mj, cena_bez_dph: zdroj.prodejni_bez_dph ?? 0,
@@ -1244,8 +1260,20 @@ $('#d-polozky').addEventListener('click', e => {
     }
     p.mnozstvi = mn;
     await nactiKatalogoveCeny([p.katalog_id]);
+
+    const prevod = prepoctiMnozstvi(mn, puvodniMj, p.mj, p.katalog_id);
+    if (!prevod) {
+      toast('Položka vyměněna, množství zůstalo.');
+    } else if (prevod.mnozstvi != null
+        && confirm(`Jednotka se mění z „${puvodniMj}" na „${p.mj}".\n\nPřepočítat množství podle hmotnosti? ${prevod.popis} = ${ks(prevod.mnozstvi)} ${p.mj}`)) {
+      p.mnozstvi = prevod.mnozstvi;
+      p.poznamka = (p.poznamka ? p.poznamka + ', ' : '') + 'přepočteno: ' + prevod.popis;
+      toast(`Přepočteno na ${ks(prevod.mnozstvi)} ${p.mj}.`);
+    } else {
+      p.mnozstviPozor = true;
+      toast(`Pozor: jednotka se změnila z „${puvodniMj}" na „${p.mj}". Zkontroluj množství.`, true);
+    }
     vykresliPolozky();
-    toast('Položka vyměněna, množství zůstalo.');
   });
 });
 
@@ -1266,6 +1294,24 @@ function klicPolozky(p) {
     : 'n:' + String(p.nazev || '').trim().toLowerCase();
 }
 
+const MJ_NORM = { 'ks': 'ks', 'kus': 'ks', 'kg': 'kg', 'm2': 'm²', 'm²': 'm²', 'm3': 'm³', 'm³': 'm³',
+  'm': 'm', 'bm': 'm', 'l': 'l', 'bal': 'bal', 'pal': 'pal', 'par': 'par', 'rol': 'rol' };
+const mjNorm = m => MJ_NORM[String(m || '').trim().toLowerCase()] || String(m || '').trim().toLowerCase();
+
+/**
+ * Když se jednotka změní (kalkulačka počítá maltu v kg, katalog ji prodává na kusy),
+ * zkusí množství přepočítat přes hmotnost z katalogu. Jinak vrátí null a nechá to na uživateli.
+ */
+function prepoctiMnozstvi(mnozstvi, mjZ, mjNa, katalogId) {
+  const z = mjNorm(mjZ), na = mjNorm(mjNa);
+  if (!z || !na || z === na) return null;
+  const k = katalogId && stav.katalogCeny[katalogId];
+  const hm = k && Number(k.hmotnost_mj) > 0 ? Number(k.hmotnost_mj) : null;
+  if (z === 'kg' && na === 'ks' && hm) return { mnozstvi: Math.ceil(mnozstvi / hm), popis: `${ks(mnozstvi)} kg / ${ks(hm)} kg na kus` };
+  if (z === 'ks' && na === 'kg' && hm) return { mnozstvi: zaokr(mnozstvi * hm), popis: `${ks(mnozstvi)} ks × ${ks(hm)} kg` };
+  return { mnozstvi: null, popis: `${z} → ${na}` };
+}
+
 /** Text pod řádkem: sklad, a hlavně upozornění na podezřele nízkou cenu. */
 function infoRadku(p) {
   const casti = [], varovani = [];
@@ -1282,6 +1328,8 @@ function infoRadku(p) {
   const c = stav.cenik.find(x => x.id === p.cenik_id)
     || (p.katalog_id ? stav.cenik.find(x => x.katalog_id === p.katalog_id) : null);
   const nakup = nakupDnes(p.katalog_id) ?? c?.nakupni_bez_dph ?? null;
+
+  if (p.mnozstviPozor) varovani.push('zkontroluj množství, změnila se jednotka');
 
   if (cena > 0) {
     if (nakup != null && cena < zaokr(nakup)) varovani.push('pod nákupní cenou ' + kc(nakup));
@@ -1505,7 +1553,7 @@ async function ulozDoklad(tise = false) {
     .map((p, i) => ({
       doklad_id: stav.doklad.id, poradi: i, cenik_id: p.cenik_id || null, katalog_id: p.katalog_id || null,
       typ: p.typ || 'ostatni', nazev: p.nazev.trim(), mj: p.mj || null,
-      mnozstvi: Number(p.mnozstvi) || 0, cena_bez_dph: Number(p.cena_bez_dph) || 0,
+      mnozstvi: Number(p.mnozstvi) || 0, cena_bez_dph: Number(p.cena_bez_dph) || 0,   // mnozstviPozor je jen pro zobrazení
       sleva_pct: Number(p.sleva_pct) || 0, sazba_dph: Number(p.sazba_dph) || 0, poznamka: p.poznamka || null
     }));
   if (radky.length) {
@@ -2087,9 +2135,18 @@ $('#kl-vysledek').addEventListener('click', async e => {
   if (mat) {
     const r = kalkRadky[Number(mat.dataset.material)];
     otevriVyber(r.material?.katalog_id || !stav.cenik.length ? 'katalog' : 'cenik', async (zdroj, rezim) => {
+      const puvodniMj = r.material?.mj || r.mj;
       pripojMaterial(r, zdroj, rezim);
       await nactiKatalogoveCeny([r.material?.katalog_id]);
-      prepocitej();
+      const prevod = prepoctiMnozstvi(r.mnozstvi, puvodniMj, r.material.mj, r.material.katalog_id);
+      if (prevod && prevod.mnozstvi != null
+          && confirm(`Materiál se prodává na „${r.material.mj}", počítáno bylo v „${puvodniMj}".\n\nPřepočítat? ${prevod.popis} = ${ks(prevod.mnozstvi)} ${r.material.mj}`)) {
+        r.mnozstvi = prevod.mnozstvi;
+        r.zaklad += ', přepočteno: ' + prevod.popis;
+      } else if (prevod) {
+        toast(`Pozor: počítáno v „${puvodniMj}", materiál se prodává na „${r.material.mj}". Uprav množství.`, true);
+      }
+      vykresliVysledek(hodnoty());
     });
     return;
   }
@@ -2156,6 +2213,7 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
       typ: m?.typ || 'material', nazev: m?.nazev || r.nazev, mj: m?.mj || r.mj,
       mnozstvi: r.mnozstvi, cena_bez_dph: m?.cena ?? 0, sleva_pct: 0,
       sazba_dph: stav.firma.platce_dph ? (m?.sazba_dph ?? 21) : 0,
+      mnozstviPozor: !!(m && mjNorm(m.mj) !== mjNorm(r.mj)),
       poznamka: KALK[kalkDruh].nazev + ': ' + r.zaklad
     });
   });
@@ -2172,8 +2230,15 @@ vykresliVstupy(false);
 /* ================= SMLOUVA O DÍLO ================= */
 
 /** Sestaví text smlouvy ze zadaných údajů. Uživatel ho pak může libovolně přepsat. */
+/** Odběratel tak, jak je právě vybraný ve formuláři – ještě před uložením. */
+function aktualniOdberatel() {
+  const k = stav.kontakty.find(x => x.id === $('#d-kontakt').value);
+  if (k) return { nazev: k.nazev, ico: k.ico, dic: k.dic, ulice: k.ulice, mesto: k.mesto, psc: k.psc, email: k.email, telefon: k.telefon };
+  return stav.doklad?.odberatel || {};
+}
+
 function textSmlouvy() {
-  const d = stav.doklad, o = d.odberatel || {}, f = firmaBlok(), s = souhrnDoklad();
+  const d = stav.doklad, o = aktualniOdberatel(), f = firmaBlok(), s = souhrnDoklad();
   const cena = s.bez + s.dph;
   const zaloha = cislo($('#d-zaloha').value) ?? 0;
   const zaruka = cislo($('#d-zaruka').value) ?? 24;
@@ -2260,11 +2325,71 @@ IX. ZÁVĚREČNÁ UJEDNÁNÍ
 4. Strany prohlašují, že si smlouvu přečetly, souhlasí s jejím obsahem a uzavírají ji svobodně a vážně, což stvrzují svými podpisy.`;
 }
 
+/** Hodnoty, které do textu doplnila aplikace – v náhledu se zvýrazní. */
+function dopocitaneHodnoty() {
+  const o = aktualniOdberatel(), f = firmaBlok(), s = souhrnDoklad();
+  const cena = s.bez + s.dph;
+  const zaloha = cislo($('#d-zaloha').value) ?? 0;
+  return [
+    stav.doklad?.cislo, f.nazev, f.adresa, f.ico, f.dic, f.ucet, f.telefon,
+    o.nazev, o.ico, o.dic, o.telefon, o.email,
+    [o.ulice, [o.psc, o.mesto].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    $('#d-uvod').value.trim(), $('#d-misto').value.trim(),
+    $('#d-od').value ? datum($('#d-od').value) : '', $('#d-do').value ? datum($('#d-do').value) : '',
+    kc(s.bez), kc(s.dph), kc(cena), kc(zaokr(cena * zaloha / 100)),
+    zaloha ? ks(zaloha) + ' %' : '', ks(cislo($('#d-zaruka').value) ?? 24) + ' měsíců'
+  ].filter(x => x && String(x).trim().length > 2);
+}
+
+function obnovNahled() {
+  const el = $('#d-nahled');
+  if (!el || el.classList.contains('skryt')) return;
+  const text = $('#d-text').value || '';
+  const hodnoty = [...new Set(dopocitaneHodnoty())].sort((a, b) => String(b).length - String(a).length);
+  let html = esc(text);
+  hodnoty.forEach(h => {
+    const vzor = esc(String(h)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp('(?![^<]*>)' + vzor, 'g'), m => `<mark>${m}</mark>`);
+  });
+  el.innerHTML = html || '<span class="napoveda">Text zatím není vyplněný.</span>';
+}
+
+$('#d-text').addEventListener('input', obnovNahled);
+$('#d-nahled-prep').addEventListener('click', () => {
+  const el = $('#d-nahled');
+  el.classList.toggle('skryt');
+  $('#d-nahled-prep').textContent = el.classList.contains('skryt') ? 'Zobrazit náhled' : 'Skrýt náhled';
+  obnovNahled();
+});
+
+/* ---- vlastní vzor smlouvy ---- */
+$('#d-vzor-ulozit').addEventListener('click', async () => {
+  const t = $('#d-text').value.trim();
+  if (!t) return toast('Nejdřív text sestav nebo napiš.', true);
+  const { error } = await sb.from('firmy').update({ sablona_smlouvy: t }).eq('id', stav.firma.id);
+  if (error) return toast('Vzor se nepodařilo uložit: ' + prelozChybu(error), true);
+  stav.firma.sablona_smlouvy = t;
+  toast('Uloženo jako tvůj vzor. Nová smlouva ho použije rovnou.');
+});
+
+$('#d-vzor-nacist').addEventListener('click', () => {
+  if (!stav.firma.sablona_smlouvy) return toast('Zatím nemáš uložený žádný vzor.', true);
+  if ($('#d-text').value.trim() && !confirm('Nahradit text tvým uloženým vzorem?')) return;
+  $('#d-text').value = stav.firma.sablona_smlouvy;
+  obnovNahled();
+  toast('Vzor načten. Zkontroluj údaje, které se v něm liší.');
+});
+
 $('#d-generovat').addEventListener('click', () => {
   if ($('#d-text').value.trim() && !confirm('Přepsat text smlouvy novým textem ze zadaných údajů?\n\nTvoje úpravy se ztratí.')) return;
   $('#d-text').value = textSmlouvy();
+  obnovNahled();
   toast('Text sestaven. Projdi ho a uprav podle konkrétní zakázky.');
 });
+
+// změna údajů nahoře se hned projeví ve zvýraznění náhledu
+['d-kontakt', 'd-uvod', 'd-misto', 'd-od', 'd-do', 'd-zaruka', 'd-zaloha'].forEach(id =>
+  $('#' + id).addEventListener('change', obnovNahled));
 
 $('#dk-nova-smlouva').addEventListener('click', () => novyDoklad('smlouva'));
 
@@ -2275,7 +2400,8 @@ $('#d-na-smlouvu').addEventListener('click', async () => {
     kontakt_id: stav.doklad.kontakt_id, odberatel: stav.doklad.odberatel,
     uvod: stav.doklad.uvod, poznamka: stav.doklad.poznamka, polozky: stav.polozky
   });
-  $('#d-text').value = textSmlouvy();
+  $('#d-text').value = stav.firma.sablona_smlouvy || textSmlouvy();
+  obnovNahled();
   toast('Smlouva vytvořená z nabídky. Zkontroluj termíny a text, pak ulož.');
 });
 
@@ -2287,7 +2413,7 @@ function tiskSmlouva() {
     return `<tr><td class="c">${i + 1}</td><td>${esc(p.nazev)}</td><td class="c">${ks(p.mnozstvi)}</td>
       <td>${esc(p.mj || '')}</td><td class="c">${kc(p.cena_bez_dph)}</td><td class="c">${kc(c)}</td></tr>`;
   }).join('');
-  const f = firmaBlok(), o = d.odberatel || {};
+  const f = firmaBlok(), o = aktualniOdberatel();
   const text = ($('#d-text').value.trim() || textSmlouvy());
 
   $('#tisk').innerHTML = `
