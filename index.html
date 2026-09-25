@@ -413,10 +413,10 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
       <div class="pas metr">
         <div class="hledani"><input id="k-hledat" class="pole" type="search" placeholder="Hledat materiál, kód nebo EAN" autocomplete="off" aria-label="Hledat v katalogu"></div>
         <div class="pas-info">
-          <label class="zatrzitko"><input type="checkbox" id="k-skladem"> Jen skladem</label>
+          <select id="k-tema" class="pole" style="max-width:340px" aria-label="Téma katalogu"><option value="">Všechna témata</option></select>
           <span style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
             <span id="k-stav">Katalog se načítá…</span>
-            <button class="btn btn-tichy btn-maly" type="button" id="k-obnovit">Načíst ceny znovu</button>
+            <button class="btn btn-tichy btn-maly" type="button" id="k-obnovit">Načíst znovu</button>
           </span>
         </div>
       </div>
@@ -618,8 +618,17 @@ dialog::backdrop{background:rgba(29,39,47,.55)}
 /* ================= NASTAVENÍ ================= */
 const SUPABASE_URL = 'https://hkzhjoveiqadezmvksdz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_WUy9urfE9n5O2SelitV6FA_mhzCUrM_';   // veřejný klíč – smí být v kódu
+
+// Katalog materiálů leží v samostatném projektu. Přihlášení je jen v projektu
+// YeY, takže sem chodíme s publishable klíčem, tedy v roli anon.
+const KATALOG_URL = 'https://fvrpuddkarujfttoaavb.supabase.co';
+const KATALOG_KEY = 'sb_publishable_1Y5nEfLwKmJxlnbkLmZgMg_Rzs7WQQG';
+
 const APP_URL = location.origin + location.pathname;
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb  = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// persistSession:false – druhý klient nesmí přepsat přihlášení toho prvního
+const sbk = supabase.createClient(KATALOG_URL, KATALOG_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } });
 
 /* ================= POMOCNÉ ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -800,80 +809,116 @@ $('#f-firma').addEventListener('submit', async e => {
 });
 
 /* ================= KATALOG ================= */
+/* Katalog je v samostatném Supabase projektu (sbk). Vazba z ceníku a z dokladů
+   na něj drží na kódu položky, ne na id – přes dva projekty cizí klíč nejde. */
+
+const KAT_SLOUPCE = 'kod, nazev, znacka, ean, foto_url, zmj, mj_v_bal, jednotek_v_baleni, mj_v_pal, '
+  + 'hmotnost_zmj, velikost, tloustka_mm, sazba_dph, pc_s_dph, pc_bez_dph, '
+  + 'tema_nazev, skupina_nazev, podskupina_nazev, skladem_zakazkove, dodaci_lhuta';
+
+/** Řádek z katalog_polozky převede na tvar, se kterým pracuje zbytek aplikace. */
+function katPolozka(r) {
+  const sazba = Number(r.sazba_dph ?? 21);
+  const bez = r.pc_bez_dph != null ? Number(r.pc_bez_dph)
+            : (r.pc_s_dph != null ? zaokr(Number(r.pc_s_dph) / (1 + sazba / 100)) : null);
+  return {
+    kod: r.kod, nazev: r.nazev || '', ean: r.ean, znacka: r.znacka,
+    mj: String(r.zmj || '').toLowerCase(),
+    sazba_dph: sazba,
+    cena_s_dph: r.pc_s_dph != null ? Number(r.pc_s_dph) : null,
+    cena_bez_dph: bez,
+    url_obrazku: r.foto_url,
+    hmotnost_mj: r.hmotnost_zmj != null ? Number(r.hmotnost_zmj) : null,
+    pocet_na_palete: r.mj_v_pal != null ? Number(r.mj_v_pal) : null,
+    v_baleni: r.mj_v_bal ?? r.jednotek_v_baleni ?? null,
+    rozmer: r.velikost || (r.tloustka_mm ? ks(r.tloustka_mm) + ' mm' : ''),
+    tema: r.tema_nazev, skupina: r.skupina_nazev, podskupina: r.podskupina_nazev,
+    dostupnost: r.skladem_zakazkove, lhuta: r.dodaci_lhuta
+  };
+}
+
 function uvodKatalogu(pocet) {
   return `<div class="prazdno" style="text-align:left;padding:1.4rem 1.2rem">
-    <p style="margin-top:0"><strong>${pocet != null ? ks(pocet) + ' položek' : 'Katalog'}</strong> od dodavatele STAVIMEX, připravených k vložení do nabídky.
-    Začni psát název, kód nebo EAN – třeba „ytong 60x25“, „sádrokarton“ nebo „cw 75“.</p>
-    <p style="margin-bottom:0"><strong>Odkud se ceny berou:</strong> dodavatel každou noc vyexportuje svůj ceník a skladové zásoby.
-    Aplikace si je sama načte ráno, takže vidíš ceny a dostupnost z posledního exportu.
-    Tlačítkem „Načíst ceny znovu“ si je stáhneš kdykoli během dne.</p>
+    <p style="margin-top:0"><strong>${pocet != null ? ks(pocet) + ' položek' : 'Katalog'}</strong> z položkového ceníku, připravených k vložení do nabídky.
+    Začni psát název, kód nebo EAN – třeba „ytong 60x25“, „sádrokarton“ nebo „cw 75“. Rozbalovátkem vedle zúžíš hledání na jedno téma.</p>
+    <p style="margin-bottom:0"><strong>Odkud se ceny berou:</strong> katalog se plní importem položkového ceníku do databáze.
+    Aplikace z něj čte jen prodejní ceny, nákupní ceny a marže jsou z ní nedostupné.
+    Tlačítkem „Načíst znovu“ zahodíš to, co má aplikace v paměti, a načteš aktuální stav.</p>
   </div>`;
 }
 
 async function nactiStavKatalogu() {
-  const { data } = await sb.from('dodavatele').select('nazev, posledni_import').eq('aktivni', true);
-  const d = (data || []).filter(x => x.posledni_import).sort((a, b) => b.posledni_import.localeCompare(a.posledni_import))[0];
-  $('#k-stav').textContent = d
-    ? 'Ceny a zásoby ' + d.nazev + ' k ' + new Date(d.posledni_import).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : 'Katalog zatím nemá data.';
+  let kdy = null;
+  const st = await sbk.from('katalog_stav').select('posledni_import, pocet_polozek').maybeSingle();
+  if (!st.error && st.data) {
+    stav.pocetKatalog = st.data.pocet_polozek ?? null;
+    kdy = st.data.posledni_import;
+  } else {
+    const c = await sbk.from('katalog_polozky').select('kod', { count: 'exact', head: true });
+    stav.pocetKatalog = c.error ? null : (c.count ?? null);
+    if (c.error) toast('Katalog se nepodařilo načíst: ' + prelozChybu(c.error), true);
+  }
 
-  const { count } = await sb.from('katalog').select('id', { count: 'exact', head: true }).eq('aktivni', true);
-  stav.pocetKatalog = count ?? null;
+  $('#k-stav').textContent = kdy
+    ? 'Ceník k ' + new Date(kdy).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
+    : (stav.pocetKatalog ? 'Ceník je načtený.' : 'Katalog není dostupný.');
+
+  const t = await sbk.from('katalog_temata').select('tema_nazev, pocet');
+  const sel = $('#k-tema'), vybrane = sel.value;
+  sel.innerHTML = '<option value="">Všechna témata</option>'
+    + (t.error ? '' : (t.data || []).map(x =>
+        `<option value="${esc(x.tema_nazev)}">${esc(x.tema_nazev)} (${ks(x.pocet)})</option>`).join(''));
+  if (vybrane) sel.value = vybrane;
+
   if ($('#k-hledat').value.trim().length < 2) $('#k-seznam').innerHTML = uvodKatalogu(stav.pocetKatalog);
 }
 
-let sloupecHledani = 'nazev_hled';   // spadne na 'nazev', když sloupec v databázi ještě není
-
-async function hledejKatalog(dotazText, limit = 60) {
-  const q = String(dotazText || '').replace(/[%,()*\\"]/g, ' ').replace(/\s+/g, ' ').trim();
+/** Hledá v katalog_polozky. Sloupec hledat je už bez diakritiky a malými písmeny. */
+async function hledejKatalog(dotazText, limit = 60, tema = null) {
+  // čárka zůstává: „12,5" je jeden rozměr, ne dvě slova
+  const q = String(dotazText || '').replace(/[%()*\\"]/g, ' ').replace(/\s+/g, ' ').trim();
   if (q.length < 2) return [];
 
-  const dotaz = () => {
-    let d = sb.from('katalog')
-      .select('id, kod, ean, nazev, mj, rozmer, pocet_na_palete, hmotnost_mj, cena_s_dph, sazba_dph, zasoby, url_produktu, url_obrazku')
-      .order('nazev').limit(limit);
-    if (/^\d{3,}$/.test(q)) {
-      d = d.or(`kod.eq.${q},ean.eq.${q},${sloupecHledani}.ilike.%${bezDia(q)}%`);
-    } else {
-      bezDia(q).split(' ').slice(0, 6).forEach(w => { d = d.ilike(sloupecHledani, `%${w}%`); });
-    }
-    return d;
-  };
-
-  let { data, error } = await dotaz();
-  if (error && sloupecHledani === 'nazev_hled' && /nazev_hled/.test(String(error.message || ''))) {
-    sloupecHledani = 'nazev';               // databáze ještě nemá vyhledávací sloupec
-    ({ data, error } = await dotaz());
+  let d = sbk.from('katalog_polozky').select(KAT_SLOUPCE).order('nazev').limit(limit);
+  // jedno slovo bez čárky a závorek smí do or() jako kód nebo EAN
+  const jedno = !/\s/.test(q) && /^[0-9A-Za-z._-]{3,}$/.test(q);
+  if (jedno) {
+    d = d.or(`kod.eq.${q},ean.eq.${q},hledat.ilike.%${bezDia(q)}%`);
+  } else {
+    const slova = bezDia(q).split(' ').filter(w => w.length >= 2).slice(0, 6);
+    (slova.length ? slova : [bezDia(q)]).forEach(w => { d = d.ilike('hledat', `%${w}%`); });
   }
+  if (tema) d = d.eq('tema_nazev', tema);
+
+  const { data, error } = await d;
   if (error) { toast('Hledání selhalo: ' + prelozChybu(error), true); return []; }
-  return data || [];
+  return (data || []).map(katPolozka);
 }
 
-/** Ruční načtení cen z feedu. Funkce si sama hlídá, aby nestahovala pořád dokola. */
+/** Zahodí, co má aplikace v paměti, a načte katalog i ceník znovu. */
 async function obnovKatalog(tlacitko) {
   const puvodni = tlacitko.textContent;
   tlacitko.disabled = true; tlacitko.textContent = 'Načítám…';
-  const { data, error } = await sb.functions.invoke('import-feed', { body: {} });
-  tlacitko.disabled = false; tlacitko.textContent = puvodni;
-  if (error || data?.chyba) { toast('Načtení selhalo: ' + (data?.chyba || prelozChybu(error)), true); return false; }
   stav.katalogCeny = {};
   await nactiStavKatalogu();
   await nactiCenik();
-  if ($('#k-hledat').value.trim().length >= 2) hledej();
-  toast(data.preskoceno ? data.zprava : `Načteno ${ks(data.importovano)} položek z ceníku dodavatele.`);
-  return true;
+  if ($('#k-hledat').value.trim().length >= 2) await hledej();
+  tlacitko.disabled = false; tlacitko.textContent = puvodni;
+  toast(stav.pocetKatalog
+    ? `Katalog načten, ${ks(stav.pocetKatalog)} položek.`
+    : 'Katalog se nepodařilo načíst.', !stav.pocetKatalog);
 }
 $('#k-obnovit').addEventListener('click', e => obnovKatalog(e.target));
 
 /** Hromadný přepočet ceníku: převezme dnešní nákupní ceny a drží tvou přirážku. */
 $('#c-prepocet').addEventListener('click', async e => {
   const kandidati = stav.cenik.filter(c => {
-    const d = nakupDnes(c.katalog_id);
+    const d = nakupDnes(c.katalog_kod);
     return d != null && c.nakupni_bez_dph != null && zaokr(c.nakupni_bez_dph) !== d;
   });
   if (!kandidati.length) return toast('Ceník odpovídá katalogu, není co přepočítat.');
 
-  const zdrazilo = kandidati.filter(c => nakupDnes(c.katalog_id) > c.nakupni_bez_dph).length;
+  const zdrazilo = kandidati.filter(c => nakupDnes(c.katalog_kod) > c.nakupni_bez_dph).length;
   if (!confirm(`Přepočítat ${kandidati.length} ${kandidati.length === 1 ? 'položku' : 'položek'} podle dnešního katalogu?\n\n`
     + `Zdražilo: ${zdrazilo}, zlevnilo: ${kandidati.length - zdrazilo}.\n`
     + `Nákupní cena se převezme z katalogu a prodejní se dopočítá tvojí přirážkou.\n`
@@ -882,7 +927,7 @@ $('#c-prepocet').addEventListener('click', async e => {
   e.target.disabled = true;
   let zmeneno = 0, preskoceno = 0;
   for (const c of kandidati) {
-    const novy = nakupDnes(c.katalog_id);
+    const novy = nakupDnes(c.katalog_kod);
     const prirazka = Number(c.prirazka_pct) || 0;
     if (!prirazka) { preskoceno++; continue; }
     const { error } = await sb.from('cenik').update({
@@ -899,7 +944,7 @@ $('#c-prepocet').addEventListener('click', async e => {
 
 let hledaniCislo = 0, hledaniCas;
 $('#k-hledat').addEventListener('input', () => { clearTimeout(hledaniCas); hledaniCas = setTimeout(hledej, 300); });
-$('#k-skladem').addEventListener('change', () => vykresliKatalog());
+$('#k-tema').addEventListener('change', () => hledej());
 
 async function hledej() {
   const moje = ++hledaniCislo;
@@ -909,46 +954,45 @@ async function hledej() {
     $('#k-seznam').innerHTML = uvodKatalogu(stav.pocetKatalog);
     return;
   }
-  const data = await hledejKatalog(q);
+  const data = await hledejKatalog(q, 60, $('#k-tema').value || null);
   if (moje !== hledaniCislo) return;
   stav.katalog = data; vykresliKatalog();
 }
 
-function zasobaStitky(z) {
-  z = z || {};
-  return [['malesice', 'Malešice'], ['liben', 'Libeň']].map(([k, jm]) => {
-    if (z[k] == null) return '';
-    const n = Number(z[k]);
-    return `<span class="stitek${n > 0 ? ' ok' : ''}">${jm} ${n > 0 ? ks(n) : '0'}</span>`;
-  }).join('');
+/** Štítky u položky katalogu: značka a dostupnost. */
+function katStitky(p) {
+  const s = [];
+  if (p.znacka) s.push(`<span class="stitek">${esc(p.znacka)}</span>`);
+  const d = String(p.dostupnost || '').trim();
+  if (d) s.push(`<span class="stitek${/sklad/.test(bezDia(d)) ? ' ok' : ''}">${esc(d)}</span>`);
+  else if (p.lhuta) s.push(`<span class="stitek">dodání ${esc(String(p.lhuta))}</span>`);
+  return s.join('');
 }
 
 function vykresliKatalog() {
   const el = $('#k-seznam');
   if ($('#k-hledat').value.trim().length < 2) return;
-  const jen = $('#k-skladem').checked;
-  const vCeniku = new Set(stav.cenik.map(c => c.katalog_id).filter(Boolean));
-  const radky = stav.katalog.filter(p => !jen || Number(p.zasoby?.malesice) > 0 || Number(p.zasoby?.liben) > 0);
-  if (!radky.length) {
-    el.innerHTML = `<div class="prazdno">${stav.katalog.length ? 'Nic z nalezeného není skladem.' : 'Nic nenalezeno. Zkus kratší slovo nebo kód.'}</div>`;
+  const vCeniku = new Set(stav.cenik.map(c => c.katalog_kod).filter(Boolean));
+  if (!stav.katalog.length) {
+    el.innerHTML = '<div class="prazdno">Nic nenalezeno. Zkus kratší slovo, kód, nebo zruš filtr tématu.</div>';
     return;
   }
-  el.innerHTML = radky.map(p => {
-    const img = httpsUrl(p.url_obrazku), eshop = httpsUrl(p.url_produktu);
-    const meta = ['kód ' + p.kod, p.rozmer, p.pocet_na_palete ? ks(p.pocet_na_palete) + ' na paletě' : '',
+  el.innerHTML = stav.katalog.map(p => {
+    const img = httpsUrl(p.url_obrazku);
+    const meta = ['kód ' + p.kod, p.rozmer, p.podskupina || p.skupina,
+                  p.pocet_na_palete ? ks(p.pocet_na_palete) + ' na paletě' : '',
                   p.hmotnost_mj ? ks(p.hmotnost_mj) + ' kg' : ''].filter(Boolean).join(', ');
     return `<div class="polozka">
       <div class="obr${img ? '' : ' bez-obr'}">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ''}</div>
       <div>
         <div class="p-nazev">${esc(p.nazev)}</div>
         <div class="p-meta">${esc(meta)}</div>
-        <div class="stitky">${zasobaStitky(p.zasoby)}${vCeniku.has(p.id) ? '<span class="stitek v-ceniku">V ceníku</span>' : ''}</div>
+        <div class="stitky">${katStitky(p)}${vCeniku.has(p.kod) ? '<span class="stitek v-ceniku">V ceníku</span>' : ''}</div>
       </div>
       <div class="p-vpravo">
-        <div class="cena">${kc(p.cena_s_dph)}<small>s DPH / ${esc((p.mj || 'ks').toLowerCase())}</small></div>
+        <div class="cena">${kc(p.cena_s_dph)}<small>s DPH / ${esc(p.mj || 'ks')}</small></div>
         <div class="p-akce">
-          ${eshop ? `<a class="btn btn-tichy btn-maly" href="${esc(eshop)}" target="_blank" rel="noopener">E-shop</a>` : ''}
-          <button class="btn btn-metr btn-maly" data-do-ceniku="${esc(p.id)}">Do ceníku</button>
+          <button class="btn btn-metr btn-maly" data-do-ceniku="${esc(p.kod)}">Do ceníku</button>
         </div>
       </div>
     </div>`;
@@ -961,17 +1005,17 @@ $('#k-seznam').addEventListener('error', e => {
 
 $('#k-seznam').addEventListener('click', e => {
   const b = e.target.closest('[data-do-ceniku]'); if (!b) return;
-  const p = stav.katalog.find(x => x.id === b.dataset.doCeniku); if (!p) return;
-  const je = stav.cenik.find(c => c.katalog_id === p.id);
+  const p = stav.katalog.find(x => x.kod === b.dataset.doCeniku); if (!p) return;
+  const je = stav.cenik.find(c => c.katalog_kod === p.kod);
   if (je) { otevriCenik(je); toast('Položka už v ceníku je, můžeš ji upravit.'); return; }
+  stav.katalogCeny[p.kod] = p;
   otevriCenik(zCatalogu(p), true);
 });
 
 function zCatalogu(p) {
-  const sazba = Number(p.sazba_dph ?? 21);
   return {
-    katalog_id: p.id, nazev: p.nazev, typ: 'material', mj: (p.mj || '').toLowerCase(), sazba_dph: sazba,
-    nakupni_bez_dph: p.cena_s_dph != null ? zaokr(p.cena_s_dph / (1 + sazba / 100)) : null,
+    katalog_kod: p.kod, nazev: p.nazev, typ: 'material', mj: p.mj, sazba_dph: p.sazba_dph,
+    nakupni_bez_dph: p.cena_bez_dph,
     prirazka_pct: cislo(pamet.cti('prirazka', '15')) ?? 0, poznamka: 'Kód ' + p.kod
   };
 }
@@ -981,30 +1025,28 @@ async function nactiCenik() {
   const { data, error } = await sb.from('cenik').select('*').eq('firma_id', stav.firma.id).order('nazev');
   if (error) { $('#c-seznam').innerHTML = `<div class="prazdno chyba">Ceník se nepodařilo načíst: ${esc(prelozChybu(error))}</div>`; return; }
   stav.cenik = data || [];
-  await nactiKatalogoveCeny(stav.cenik.map(c => c.katalog_id));
+  await nactiKatalogoveCeny(stav.cenik.map(c => c.katalog_kod));
   vykresliCenik();
 }
 
-/** Aktuální ceny a zásoby položek katalogu, na které je něco navázané. */
-async function nactiKatalogoveCeny(idcka) {
-  const ids = [...new Set((idcka || []).filter(Boolean))].filter(id => !stav.katalogCeny[id]);
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await sb.from('katalog')
-      .select('id, kod, nazev, cena_s_dph, sazba_dph, zasoby').in('id', ids.slice(i, i + 200));
-    (data || []).forEach(k => { stav.katalogCeny[k.id] = k; });
+/** Aktuální ceny položek katalogu, na které je něco navázané. Klíčem je kód. */
+async function nactiKatalogoveCeny(kody) {
+  const chybi = [...new Set((kody || []).filter(Boolean))].filter(k => !stav.katalogCeny[k]);
+  for (let i = 0; i < chybi.length; i += 200) {
+    const { data } = await sbk.from('katalog_polozky').select(KAT_SLOUPCE).in('kod', chybi.slice(i, i + 200));
+    (data || []).forEach(r => { stav.katalogCeny[r.kod] = katPolozka(r); });
   }
 }
 
 /** Dnešní nákupní cena bez DPH podle katalogu. */
-function nakupDnes(katalogId) {
-  const k = katalogId && stav.katalogCeny[katalogId];
-  if (!k || k.cena_s_dph == null) return null;
-  return zaokr(k.cena_s_dph / (1 + Number(k.sazba_dph ?? 21) / 100));
+function nakupDnes(kod) {
+  const k = kod && stav.katalogCeny[kod];
+  return k && k.cena_bez_dph != null ? zaokr(k.cena_bez_dph) : null;
 }
 
 /** Co je na položce ceníku špatně: zdražený nákup nebo ztrátová cena. */
 function kontrolaCeniku(c) {
-  const dnesni = nakupDnes(c.katalog_id);
+  const dnesni = nakupDnes(c.katalog_kod);
   const prodej = c.prodejni_bez_dph;
   if (dnesni == null) return null;
   if (prodej != null && zaokr(prodej) < zaokr(dnesni)) return { druh: 'ztrata', text: 'prodej pod nákupem ' + kc(dnesni) };
@@ -1048,7 +1090,7 @@ $('#c-seznam').addEventListener('click', e => {
 
 const dlgCenik = $('#dlg-cenik');
 function otevriCenik(c, zKatalogu = false) {
-  $('#cd-id').value = c.id || ''; $('#cd-katalog').value = c.katalog_id || '';
+  $('#cd-id').value = c.id || ''; $('#cd-katalog').value = c.katalog_kod || '';
   $('#cd-titulek').textContent = c.id ? 'Upravit položku' : 'Nová položka ceníku';
   $('#cd-nazev').value = c.nazev || ''; $('#cd-typ').value = c.typ || 'material'; $('#cd-mj').value = c.mj || '';
   $('#cd-dph').value = String(Number(c.sazba_dph ?? 21));
@@ -1056,7 +1098,7 @@ function otevriCenik(c, zKatalogu = false) {
   $('#cd-poznamka').value = c.poznamka || '';
   if (c.prodejni_bez_dph != null) $('#cd-prodej').value = vPole(c.prodejni_bez_dph); else prodejZPrirazky();
   $('#cd-napoveda').classList.toggle('skryt', !zKatalogu);
-  const dnesni = nakupDnes(c.katalog_id);
+  const dnesni = nakupDnes(c.katalog_kod);
   $('#cd-katalog-info').classList.toggle('skryt', dnesni == null);
   $('#cd-prevzit').classList.toggle('skryt', dnesni == null || zaokr(c.nakupni_bez_dph ?? 0) === dnesni);
   if (dnesni != null) {
@@ -1119,7 +1161,7 @@ $('#f-polozka').addEventListener('submit', async e => {
   $('#cd-ulozit').disabled = true;
   let v;
   if (id) v = await sb.from('cenik').update(z).eq('id', id);
-  else { z.firma_id = stav.firma.id; z.katalog_id = $('#cd-katalog').value || null; v = await sb.from('cenik').insert(z); }
+  else { z.firma_id = stav.firma.id; z.katalog_kod = $('#cd-katalog').value || null; v = await sb.from('cenik').insert(z); }
   $('#cd-ulozit').disabled = false;
   if (v.error) return toast('Uložení selhalo: ' + prelozChybu(v.error), true);
   if (z.typ === 'material') pamet.pis('prirazka', String(z.prirazka_pct));
@@ -1272,7 +1314,7 @@ async function novyDoklad(typ, zaklad = null) {
   if (e2) return toast('Doklad se nepodařilo založit: ' + prelozChybu(e2), true);
   if (zaklad) {
     const kopie = zaklad.polozky.map((p, i) => ({
-      doklad_id: data.id, poradi: i, cenik_id: p.cenik_id, katalog_id: p.katalog_id, typ: p.typ,
+      doklad_id: data.id, poradi: i, cenik_id: p.cenik_id, katalog_kod: p.katalog_kod, typ: p.typ,
       nazev: p.nazev, mj: p.mj, mnozstvi: p.mnozstvi, cena_bez_dph: p.cena_bez_dph,
       sleva_pct: p.sleva_pct, sazba_dph: p.sazba_dph, poznamka: p.poznamka
     }));
@@ -1323,7 +1365,7 @@ async function otevriDoklad(id) {
   $('#d-info').textContent = 'Ceny na dokladu jsou uzamčené. Pozdější změna ceníku ani noční import je nezmění.';
   vykresliPolozky();
   prepniTab('doklad');
-  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id));
+  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_kod));
   await nactiPosledniCeny();
   obnovInfo();
   if (smlouva) {
@@ -1370,24 +1412,24 @@ $('#d-polozky').addEventListener('click', e => {
   if (!v) return;
   const i = Number(v.dataset.vymenit);
   const p = stav.polozky[i];
-  otevriVyber(p.katalog_id ? 'katalog' : 'cenik', async (zdroj, rezim) => {
+  otevriVyber(p.katalog_kod ? 'katalog' : 'cenik', async (zdroj, rezim) => {
     const mn = p.mnozstvi, puvodniMj = p.mj;
     if (rezim === 'cenik') {
-      Object.assign(p, { cenik_id: zdroj.id, katalog_id: zdroj.katalog_id || null, typ: zdroj.typ || 'material',
+      Object.assign(p, { cenik_id: zdroj.id, katalog_kod: zdroj.katalog_kod || null, typ: zdroj.typ || 'material',
         nazev: zdroj.nazev, mj: zdroj.mj || p.mj, cena_bez_dph: zdroj.prodejni_bez_dph ?? 0,
         sazba_dph: sazbaProDoklad(zdroj.sazba_dph) });
     } else {
-      const sazba = Number(zdroj.sazba_dph ?? 21);
-      const vCeniku = stav.cenik.find(c => c.katalog_id === zdroj.id);
-      Object.assign(p, { cenik_id: vCeniku?.id || null, katalog_id: zdroj.id, typ: 'material',
-        nazev: zdroj.nazev, mj: (zdroj.mj || p.mj || '').toLowerCase(),
-        cena_bez_dph: vCeniku?.prodejni_bez_dph ?? (zdroj.cena_s_dph != null ? zaokr(zdroj.cena_s_dph / (1 + sazba / 100)) : 0),
-        sazba_dph: sazbaProDoklad(sazba), poznamka: p.poznamka || ('Kód ' + zdroj.kod) });
+      stav.katalogCeny[zdroj.kod] = zdroj;
+      const vCeniku = stav.cenik.find(c => c.katalog_kod === zdroj.kod);
+      Object.assign(p, { cenik_id: vCeniku?.id || null, katalog_kod: zdroj.kod, typ: 'material',
+        nazev: zdroj.nazev, mj: zdroj.mj || p.mj || '',
+        cena_bez_dph: vCeniku?.prodejni_bez_dph ?? zdroj.cena_bez_dph ?? 0,
+        sazba_dph: sazbaProDoklad(zdroj.sazba_dph), poznamka: p.poznamka || ('Kód ' + zdroj.kod) });
     }
     p.mnozstvi = mn;
-    await nactiKatalogoveCeny([p.katalog_id]);
+    await nactiKatalogoveCeny([p.katalog_kod]);
 
-    const prevod = prepoctiMnozstvi(mn, puvodniMj, p.mj, p.katalog_id);
+    const prevod = prepoctiMnozstvi(mn, puvodniMj, p.mj, p.katalog_kod);
     if (!prevod) {
       toast('Položka vyměněna, množství zůstalo.');
     } else if (prevod.mnozstvi != null
@@ -1419,7 +1461,7 @@ function souhrnDoklad() {
 // sklad a hlídání cen přímo u řádků dokladu
 function klicPolozky(p) {
   return p.cenik_id ? 'c:' + p.cenik_id
-    : p.katalog_id ? 'k:' + p.katalog_id
+    : p.katalog_kod ? 'k:' + p.katalog_kod
     : 'n:' + String(p.nazev || '').trim().toLowerCase();
 }
 
@@ -1444,19 +1486,14 @@ function prepoctiMnozstvi(mnozstvi, mjZ, mjNa, katalogId) {
 /** Text pod řádkem: sklad, a hlavně upozornění na podezřele nízkou cenu. */
 function infoRadku(p) {
   const casti = [], varovani = [];
-  const k = p.katalog_id && stav.katalogCeny[p.katalog_id];
-  const mn = Number(p.mnozstvi) || 0;
+  const k = p.katalog_kod && stav.katalogCeny[p.katalog_kod];
   const cena = Number(p.cena_bez_dph) || 0;
 
-  if (k) {
-    const m = Number(k.zasoby?.malesice) || 0, l = Number(k.zasoby?.liben) || 0;
-    casti.push(`kód ${k.kod}, skladem ${ks(m)} + ${ks(l)}`);
-    if (m + l < mn) varovani.push('skladem je méně, než objednáváš');
-  }
+  if (k) casti.push('kód ' + k.kod + (k.dostupnost ? ', ' + k.dostupnost : ''));
 
   const c = stav.cenik.find(x => x.id === p.cenik_id)
-    || (p.katalog_id ? stav.cenik.find(x => x.katalog_id === p.katalog_id) : null);
-  const nakup = nakupDnes(p.katalog_id) ?? c?.nakupni_bez_dph ?? null;
+    || (p.katalog_kod ? stav.cenik.find(x => x.katalog_kod === p.katalog_kod) : null);
+  const nakup = nakupDnes(p.katalog_kod) ?? c?.nakupni_bez_dph ?? null;
 
   if (p.mnozstviPozor) varovani.push('zkontroluj množství, změnila se jednotka');
 
@@ -1490,7 +1527,7 @@ function obnovInfo() {
 async function nactiPosledniCeny() {
   stav.posledniCeny = {};
   const { data, error } = await sb.from('polozky_dokladu')
-    .select('nazev, cena_bez_dph, cenik_id, katalog_id, doklad:doklady!inner(id, cislo, firma_id, datum_vystaveni)')
+    .select('nazev, cena_bez_dph, cenik_id, katalog_kod, doklad:doklady!inner(id, cislo, firma_id, datum_vystaveni)')
     .eq('doklad.firma_id', stav.firma.id)
     .limit(500);
   if (error || !data) return;
@@ -1559,13 +1596,12 @@ function vykresliVyber(polozky) {
     return;
   }
   el.innerHTML = polozky.map(p => {
-    const cena = vyberRezim === 'cenik' ? p.prodejni_bez_dph
-      : (p.cena_s_dph != null ? zaokr(p.cena_s_dph / (1 + Number(p.sazba_dph ?? 21) / 100)) : null);
+    const cena = vyberRezim === 'cenik' ? p.prodejni_bez_dph : p.cena_bez_dph;
     const meta = vyberRezim === 'cenik' ? [TYPY[p.typ], p.mj].filter(Boolean).join(', ')
       : ['kód ' + p.kod, p.rozmer].filter(Boolean).join(', ');
-    return `<button class="rada rada-cenik" data-vyber="${esc(p.id)}">
+    return `<button class="rada rada-cenik" data-vyber="${esc(vyberRezim === 'katalog' ? p.kod : p.id)}">
       <span><span class="p-nazev">${esc(p.nazev)}</span><span class="p-meta" style="display:block">${esc(meta)}</span>
-      ${vyberRezim === 'katalog' ? `<span class="stitky">${zasobaStitky(p.zasoby)}</span>` : ''}</span>
+      ${vyberRezim === 'katalog' ? `<span class="stitky">${katStitky(p)}</span>` : ''}</span>
       <span></span>
       <span class="c-ceny"><span class="cena">${kc(cena)}</span>bez DPH</span></button>`;
   }).join('');
@@ -1575,31 +1611,31 @@ $('#vd-seznam').addEventListener('click', e => {
   const b = e.target.closest('[data-vyber]'); if (!b) return;
   const id = b.dataset.vyber;
   if (vyberCallback) {
-    const zdroj = vyberRezim === 'cenik' ? stav.cenik.find(x => x.id === id) : stav.katalogVyber?.find(x => x.id === id);
+    const zdroj = vyberRezim === 'cenik' ? stav.cenik.find(x => x.id === id) : stav.katalogVyber?.find(x => x.kod === id);
     if (zdroj) { const cb = vyberCallback; vyberCallback = null; dlgVyber.close(); cb(zdroj, vyberRezim); }
     return;
   }
   if (vyberRezim === 'cenik') {
     const c = stav.cenik.find(x => x.id === id); if (!c) return;
     stav.polozky.push({
-      cenik_id: c.id, katalog_id: c.katalog_id || null, typ: c.typ, nazev: c.nazev, mj: c.mj,
+      cenik_id: c.id, katalog_kod: c.katalog_kod || null, typ: c.typ, nazev: c.nazev, mj: c.mj,
       mnozstvi: 1, cena_bez_dph: c.prodejni_bez_dph ?? 0, sleva_pct: 0,
       sazba_dph: stav.firma.platce_dph ? Number(c.sazba_dph ?? 21) : 0, poznamka: null
     });
   } else {
-    const k = stav.katalogVyber?.find(x => x.id === id) || null;
+    const k = stav.katalogVyber?.find(x => x.kod === id) || null;
     if (!k) return;
-    const sazba = Number(k.sazba_dph ?? 21);
-    const vCeniku = stav.cenik.find(c => c.katalog_id === k.id);
+    stav.katalogCeny[k.kod] = k;
+    const vCeniku = stav.cenik.find(c => c.katalog_kod === k.kod);
     stav.polozky.push({
-      cenik_id: vCeniku?.id || null, katalog_id: k.id, typ: 'material', nazev: k.nazev, mj: (k.mj || '').toLowerCase(),
+      cenik_id: vCeniku?.id || null, katalog_kod: k.kod, typ: 'material', nazev: k.nazev, mj: k.mj,
       mnozstvi: 1,
-      cena_bez_dph: vCeniku?.prodejni_bez_dph ?? (k.cena_s_dph != null ? zaokr(k.cena_s_dph / (1 + sazba / 100)) : 0),
-      sleva_pct: 0, sazba_dph: sazbaProDoklad(sazba), poznamka: 'Kód ' + k.kod
+      cena_bez_dph: vCeniku?.prodejni_bez_dph ?? k.cena_bez_dph ?? 0,
+      sleva_pct: 0, sazba_dph: sazbaProDoklad(k.sazba_dph), poznamka: 'Kód ' + k.kod
     });
   }
   dlgVyber.close();
-  nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id)).then(obnovInfo);
+  nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_kod)).then(obnovInfo);
   vykresliPolozky(); toast('Položka přidána.');
 });
 
@@ -1621,7 +1657,7 @@ $('#d-ulozit').addEventListener('click', async () => {
 
 /* ---- ručně psané položky se ukládají i do ceníku ---- */
 function rucniNoveKPolozkam() {
-  return stav.polozky.filter(p => !p.cenik_id && !p.katalog_id && (p.nazev || '').trim()
+  return stav.polozky.filter(p => !p.cenik_id && !p.katalog_kod && (p.nazev || '').trim()
     && Number(p.cena_bez_dph) > 0
     && !stav.cenik.some(c => (c.nazev || '').trim().toLowerCase() === p.nazev.trim().toLowerCase()));
 }
@@ -1682,7 +1718,7 @@ async function ulozDoklad(tise = false) {
   const radky = stav.polozky
     .filter(p => (p.nazev || '').trim())
     .map((p, i) => ({
-      doklad_id: stav.doklad.id, poradi: i, cenik_id: p.cenik_id || null, katalog_id: p.katalog_id || null,
+      doklad_id: stav.doklad.id, poradi: i, cenik_id: p.cenik_id || null, katalog_kod: p.katalog_kod || null,
       typ: p.typ || 'ostatni', nazev: p.nazev.trim(), mj: p.mj || null,
       mnozstvi: Number(p.mnozstvi) || 0, cena_bez_dph: Number(p.cena_bez_dph) || 0,   // mnozstviPozor je jen pro zobrazení
       sleva_pct: Number(p.sleva_pct) || 0, sazba_dph: Number(p.sazba_dph) || 0, poznamka: p.poznamka || null
@@ -2187,13 +2223,13 @@ function vykresliVysledek(h) {
   if (!kalkRadky.length) { el.innerHTML = '<div class="prazdno">Vyplň rozměry a spočítám množství.</div>'; return; }
   let hmotnost = 0, palety = [];
   kalkRadky.forEach(r => {
-    const k = r.material?.katalog_id && stav.katalogCeny[r.material.katalog_id];
+    const k = r.material?.katalog_kod && stav.katalogCeny[r.material.katalog_kod];
     if (k?.hmotnost_mj) hmotnost += k.hmotnost_mj * r.mnozstvi;
     if (k?.pocet_na_palete) palety.push(`${r.nazev}: ${ks3(zaokr(r.mnozstvi / k.pocet_na_palete * 100) / 100)} palety`);
   });
   const cena = kalkRadky.reduce((s, r) => s + (r.material ? r.material.cena * r.mnozstvi : 0), 0);
   el.innerHTML = kalkRadky.map((r, i) => {
-    const k = r.material?.katalog_id && stav.katalogCeny[r.material.katalog_id];
+    const k = r.material?.katalog_kod && stav.katalogCeny[r.material.katalog_kod];
     const naPalete = k?.pocet_na_palete;
     return `<div class="kalk-radek">
       <div><span class="p-nazev">${esc(r.material ? r.material.nazev : r.nazev)}</span>
@@ -2282,11 +2318,11 @@ $('#kl-vysledek').addEventListener('click', async e => {
   const mat = e.target.closest('[data-material]');
   if (mat) {
     const r = kalkRadky[Number(mat.dataset.material)];
-    otevriVyber(r.material?.katalog_id || !stav.cenik.length ? 'katalog' : 'cenik', async (zdroj, rezim) => {
+    otevriVyber(r.material?.katalog_kod || !stav.cenik.length ? 'katalog' : 'cenik', async (zdroj, rezim) => {
       const puvodniMj = r.material?.mj || r.mj;
       pripojMaterial(r, zdroj, rezim);
-      await nactiKatalogoveCeny([r.material?.katalog_id]);
-      const prevod = prepoctiMnozstvi(r.mnozstvi, puvodniMj, r.material.mj, r.material.katalog_id);
+      await nactiKatalogoveCeny([r.material?.katalog_kod]);
+      const prevod = prepoctiMnozstvi(r.mnozstvi, puvodniMj, r.material.mj, r.material.katalog_kod);
       if (prevod && prevod.mnozstvi != null
           && confirm(`Materiál se prodává na „${r.material.mj}", počítáno bylo v „${puvodniMj}".\n\nPřepočítat? ${prevod.popis} = ${ks(prevod.mnozstvi)} ${r.material.mj}`)) {
         r.mnozstvi = prevod.mnozstvi;
@@ -2301,7 +2337,7 @@ $('#kl-vysledek').addEventListener('click', async e => {
   const pal = e.target.closest('[data-paleta]');
   if (pal) {
     const r = kalkRadky[Number(pal.dataset.paleta)];
-    const k = stav.katalogCeny[r.material.katalog_id];
+    const k = stav.katalogCeny[r.material.katalog_kod];
     const palet = Math.ceil(r.mnozstvi / k.pocet_na_palete);
     r.mnozstvi = palet * k.pocet_na_palete;
     r.zaklad += `, zaokrouhleno na ${palet} ${palet === 1 ? 'paletu' : 'palety'}`;
@@ -2326,7 +2362,7 @@ function prevezmiRozmer(k) {
   const hlavni = kalkRadky[0];
   if (hlavni) {
     pripojMaterial(hlavni, k, 'katalog');
-    nactiKatalogoveCeny([k.id]).then(() => {
+    nactiKatalogoveCeny([k.kod]).then(() => {
       vykresliVysledek(hodnoty());
       if (pamet.cti('kalk-auto', '1') === '1') doplnMaterialy($('#kl-doplnit'));
     });
@@ -2335,15 +2371,16 @@ function prevezmiRozmer(k) {
 
 function pripojMaterial(radek, zdroj, rezim) {
   if (rezim === 'cenik') {
-    radek.material = { cenik_id: zdroj.id, katalog_id: zdroj.katalog_id || null, nazev: zdroj.nazev,
+    radek.material = { cenik_id: zdroj.id, katalog_kod: zdroj.katalog_kod || null, nazev: zdroj.nazev,
       mj: zdroj.mj || radek.mj, cena: zdroj.prodejni_bez_dph ?? 0,
       sazba_dph: Number(zdroj.sazba_dph ?? 21), typ: zdroj.typ || 'material' };
   } else {
+    stav.katalogCeny[zdroj.kod] = zdroj;
     const sazba = Number(zdroj.sazba_dph ?? 21);
-    const vCeniku = stav.cenik.find(c => c.katalog_id === zdroj.id);
-    const nakup = zdroj.cena_s_dph != null ? zaokr(zdroj.cena_s_dph / (1 + sazba / 100)) : 0;
+    const vCeniku = stav.cenik.find(c => c.katalog_kod === zdroj.kod);
+    const nakup = zdroj.cena_bez_dph ?? 0;
     radek.material = {
-      cenik_id: vCeniku?.id || null, katalog_id: zdroj.id, nazev: zdroj.nazev,
+      cenik_id: vCeniku?.id || null, katalog_kod: zdroj.kod, nazev: zdroj.nazev,
       mj: (zdroj.mj || radek.mj).toLowerCase(),
       nakup,
       // materiál, který ještě není v ceníku, dostane výchozí přirážku
@@ -2371,11 +2408,11 @@ const HLEDAT = {
     lista: 'zakladaci lista', rohovnik: 'rohovnik perlinka' }
 };
 
-/** Vybere z nálezů to nejvhodnější: skladem a nejlevnější. */
+/** Vybere z nálezů to nejvhodnější: s cenou a nejlevnější. */
 function nejlepsiNalez(polozky) {
-  const skladem = polozky.filter(p => Number(p.zasoby?.malesice) > 0 || Number(p.zasoby?.liben) > 0);
-  const zvazit = skladem.length ? skladem : polozky;
-  return zvazit.slice().sort((a, b) => (a.cena_s_dph ?? 1e9) - (b.cena_s_dph ?? 1e9))[0] || null;
+  const scenou = polozky.filter(p => Number(p.cena_bez_dph) > 0);
+  const zvazit = scenou.length ? scenou : polozky;
+  return zvazit.slice().sort((a, b) => (a.cena_bez_dph ?? 1e9) - (b.cena_bez_dph ?? 1e9))[0] || null;
 }
 
 async function doplnMaterialy(tlacitko) {
@@ -2403,9 +2440,9 @@ async function doplnMaterialy(tlacitko) {
     if (!nej) continue;
     const puvodniMj = r.mj;
     pripojMaterial(r, nej, 'katalog');
-    await nactiKatalogoveCeny([nej.id]);
+    await nactiKatalogoveCeny([nej.kod]);
 
-    const prevod = prepoctiMnozstvi(r.mnozstvi, puvodniMj, r.material.mj, nej.id);
+    const prevod = prepoctiMnozstvi(r.mnozstvi, puvodniMj, r.material.mj, nej.kod);
     if (prevod && prevod.mnozstvi != null) {
       r.mnozstvi = prevod.mnozstvi;
       r.zaklad += ', přepočteno: ' + prevod.popis;
@@ -2435,11 +2472,11 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
   if (!stav.doklad) { await novyDoklad('nabidka'); if (!stav.doklad) return; }
 
   // materiál z katalogu, který ještě v ceníku není, se do něj rovnou uloží s přirážkou
-  const kZalozeni = kalkRadky.filter(r => r.material?.katalog_id && !r.material.cenik_id);
+  const kZalozeni = kalkRadky.filter(r => r.material?.katalog_kod && !r.material.cenik_id);
   let zalozeno = 0;
   if (kZalozeni.length) {
     const { data, error } = await sb.from('cenik').insert(kZalozeni.map(r => ({
-      firma_id: stav.firma.id, katalog_id: r.material.katalog_id, typ: 'material',
+      firma_id: stav.firma.id, katalog_kod: r.material.katalog_kod, typ: 'material',
       nazev: r.material.nazev, mj: r.material.mj,
       nakupni_bez_dph: r.material.nakup ?? null,
       prirazka_pct: PRIRAZKA_KALK,
@@ -2450,7 +2487,7 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
     if (error) toast('Do ceníku se materiál nepodařilo uložit: ' + prelozChybu(error), true);
     else {
       (data || []).forEach(c => {
-        const r = kZalozeni.find(x => x.material.katalog_id === c.katalog_id);
+        const r = kZalozeni.find(x => x.material.katalog_kod === c.katalog_kod);
         if (r) { r.material.cenik_id = c.id; r.material.prirazka = null; }
       });
       zalozeno = (data || []).length;
@@ -2460,7 +2497,7 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
   kalkRadky.forEach(r => {
     const m = r.material;
     stav.polozky.push({
-      cenik_id: m?.cenik_id || null, katalog_id: m?.katalog_id || null,
+      cenik_id: m?.cenik_id || null, katalog_kod: m?.katalog_kod || null,
       typ: m?.typ || 'material', nazev: m?.nazev || r.nazev, mj: m?.mj || r.mj,
       mnozstvi: r.mnozstvi, cena_bez_dph: m?.cena ?? 0, sleva_pct: 0,
       sazba_dph: sazbaProDoklad(m?.sazba_dph),
@@ -2468,7 +2505,7 @@ $('#kl-do-nabidky').addEventListener('click', async () => {
       poznamka: KALK[kalkDruh].nazev + ': ' + r.zaklad
     });
   });
-  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_id));
+  await nactiKatalogoveCeny(stav.polozky.map(x => x.katalog_kod));
   if (zalozeno) await nactiCenik();
   vykresliPolozky();
   prepniTab('doklad');
@@ -2927,25 +2964,23 @@ $('#d-tisk').addEventListener('click', async () => {
 
 $('#d-objednavka').addEventListener('click', async () => {
   if (!(await ulozDoklad(true))) return;
-  const mat = stav.polozky.filter(p => p.katalog_id);
+  const mat = stav.polozky.filter(p => p.katalog_kod);
   if (!mat.length) return toast('V nabídce není žádný materiál z katalogu.', true);
-  const { data } = await sb.from('katalog').select('id, kod, ean, nazev, mj, zasoby').in('id', mat.map(p => p.katalog_id));
-  const mapa = Object.fromEntries((data || []).map(k => [k.id, k]));
+  await nactiKatalogoveCeny(mat.map(p => p.katalog_kod));
   const radky = mat.map((p, i) => {
-    const k = mapa[p.katalog_id] || {};
-    const m = Number(k.zasoby?.malesice) || 0, l = Number(k.zasoby?.liben) || 0;
-    return `<tr><td class="c">${i + 1}</td><td>${esc(k.kod || '')}</td><td>${esc(p.nazev)}</td>
-      <td class="c">${ks(p.mnozstvi)}</td><td>${esc(p.mj || '')}</td>
-      <td class="c">${ks(m)}</td><td class="c">${ks(l)}</td></tr>`;
+    const k = stav.katalogCeny[p.katalog_kod] || {};
+    return `<tr><td class="c">${i + 1}</td><td>${esc(p.katalog_kod)}</td><td>${esc(k.ean || '')}</td>
+      <td>${esc(p.nazev)}</td><td class="c">${ks(p.mnozstvi)}</td><td>${esc(p.mj || '')}</td>
+      <td>${esc(k.dostupnost || k.lhuta || '')}</td></tr>`;
   }).join('');
   const f = firmaBlok();
   $('#tisk').innerHTML = `
     <div class="tisk-hlava"><div><h1>Objednávkový list</h1>
       <div>K nabídce ${esc(stav.doklad.cislo)}, ${esc(datum(dnes()))}</div></div>
       <div style="text-align:right"><strong>${esc(f.nazev)}</strong><br>${esc(f.telefon)}<br>${f.ico ? 'IČO ' + esc(f.ico) : ''}</div></div>
-    <table><thead><tr><th class="c">#</th><th>Kód</th><th>Materiál</th><th class="c">Množství</th><th>MJ</th>
-      <th class="c">Malešice</th><th class="c">Libeň</th></tr></thead><tbody>${radky}</tbody></table>
-    <div class="tisk-pata">Zásoby jsou orientační podle posledního importu katalogu. Dostupnost potvrdí sklad při objednání.</div>`;
+    <table><thead><tr><th class="c">#</th><th>Kód</th><th>EAN</th><th>Materiál</th><th class="c">Množství</th><th>MJ</th>
+      <th>Dostupnost</th></tr></thead><tbody>${radky}</tbody></table>
+    <div class="tisk-pata">Údaje jsou z položkového ceníku k poslednímu importu. Dostupnost a cenu potvrdí prodejna při objednání.</div>`;
   window.print();
 });
 </script>
